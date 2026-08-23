@@ -36,12 +36,17 @@ og et valg i et tempo, der holder opmærksomheden.
 |---|---|---|
 | Bevæg | WASD eller piletaster | Joystick i venstre side |
 | Sigt | Musen | Automatisk mod nærmeste fjende |
-| Skyd | Hold museknap, eller mellemrum | Automatisk |
+| Skyd | Hold museknap, eller mellemrum | Automatisk, men kun mens en finger rører skærmen |
 | Skift våben | 1–7, eller Q | Kort tryk i højre side af banen |
 | Pause | P eller Esc | Pauseknap |
 
-Touch-versionen sigter og skyder selv. Det er med vilje: for de yngste er "bevæg dig
-væk fra slimen" en opgave nok i sig selv.
+Touch-versionen sigter og skyder selv, **men kun mens en finger rører skærmen**. Det
+er med vilje: for de yngste er "bevæg dig væk fra slimen" en opgave nok i sig selv.
+
+Kravet om en finger på skærmen er ikke kosmetisk. Uden det skød spillet konstant af
+sig selv, fordi touch-tilstanden blev slået til ved første berøring og aldrig slået
+fra igen — en urørt telefon ryddede bølge efter bølge på egen hånd, og det så ud, som
+om spillet sprang bølger over.
 
 Holdes telefonen i portræt, pauser spillet og beder om at blive drejet — banen er
 16:10, og i portræt bliver den under en tredjedel af skærmen.
@@ -143,7 +148,30 @@ sjælden fantastisk tur er det, man fortæller om bagefter.
 
 Knapperne til at genbalancere står samlet i `TUNE` øverst i `index.html`.
 
-## 8. iPhone og iPad
+## 8. Banens størrelse
+
+Banen er 600 enheder høj, og **bredden følger skærmens format** (`W_MIN` 640 til
+`W_MAX` 1700). En fast bane på 960×600 gav sorte bjælker i siderne på alt, der ikke
+er 16:10 — en iPhone i landskab er ca. 2,2:1, så spillet brugte kun 598 af 844 px.
+
+Højden holdes fast, fordi alle lodrette positioner i menu, butik og HUD er målt til
+den. Alt vandret er derimod centreret (`W/2`) eller højreforankret (`W - 20`), så det
+tilpasser sig af sig selv. Butikkens kort krymper med smalle baner, så de tre kort
+altid står side om side.
+
+| Skærm | Plads | Bane | Ubrugt |
+|---|---|---|---|
+| iPhone 14/15 landskab | 828×374 | 1328×600 | 0×0 px |
+| iPhone Pro Max landskab | 1116×494 | 1355×600 | 0×0 px |
+| iPad landskab | 1008×744 | 813×600 | 0×0 px |
+| Stor desktop | 1904×1040 | 1098×600 | 1×0 px |
+
+Antallet af fjender følger **ikke** banens bredde. Det blev prøvet og målt: skalering
+efter areal gav median bølge 8, kvadratrod gav 9, ingen skalering gav 11 — mod 13 på
+referencebanen. Spillerens ildkraft er den bindende faktor, ikke pladsen, så flere
+fjender på en bredere bane gør spillet sværere frem for ens.
+
+## 9. iPhone og iPad
 
 Fire ting i iOS kræver særlig håndtering, og de er alle løst i koden:
 
@@ -168,12 +196,15 @@ Alternativt uden hosting: kør `python3 -m http.server 8000` i mappen på comput
 åbn `http://<computerens-ip>:8000` på telefonen — kræver samme wi-fi og at computeren
 er tændt.
 
-## 9. Filer
+## 10. Filer
 
 - `index.html` — hele spillet: motor, grafik, lyd, HUD, butik. Ingen afhængigheder.
+- `sw.js` — service worker. **Hæv `VERSION` ved hver ændring**, ellers bliver
+  telefonen ved med at vise den gamle version fra sin cache.
+- `manifest.webmanifest`, `icon-*.png` — installering på hjemmeskærmen.
 - `DESIGN.md` — dette dokument.
 
-## 10. Idéer til næste iteration
+## 11. Idéer til næste iteration
 
 1. **Baner med forhindringer** — kasser og vandpytter, der ændrer taktikken.
 2. **Co-op på samme tastatur** — spiller 2 på piletaster + Enter. Stor gevinst for søskende.

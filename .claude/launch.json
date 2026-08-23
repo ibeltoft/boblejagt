@@ -1,0 +1,3 @@
+{ "version": "0.0.1", "configurations": [
+  { "name": "boblejagt", "runtimeExecutable": "python3",
+    "runtimeArgs": ["/private/tmp/claude-501/-Users-ivanbeltoft-Documents-Claude-Game/2eb9fd1a-3851-4364-a697-9b6807911d89/scratchpad/serve/server.py"], "port": 8232 } ] }

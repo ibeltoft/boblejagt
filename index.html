@@ -9,6 +9,10 @@
   #wrap{position:fixed;inset:0;display:grid;place-items:center;box-sizing:border-box;
     padding:calc(env(safe-area-inset-top) + 8px) calc(env(safe-area-inset-right) + 8px)
             calc(env(safe-area-inset-bottom) + 8px) calc(env(safe-area-inset-left) + 8px)}
+  /* startet fra hjemmeskærmen: brug hver eneste pixel, ingen vinduesramme */
+  body.app #wrap{padding:env(safe-area-inset-top) env(safe-area-inset-right)
+                         env(safe-area-inset-bottom) env(safe-area-inset-left)}
+  body.app canvas{border-radius:0;box-shadow:none}
   /* touch-action nedarves ikke — uden denne zoomer et dobbelttryk midt i spillet */
   canvas{display:block;image-rendering:auto;border-radius:14px;touch-action:none;
     box-shadow:0 18px 60px rgba(0,0,0,.55)}
@@ -22,7 +26,14 @@
    Alt tegnes med canvas. Ingen billed- eller lydfiler.
    ============================================================ */
 
-const W = 960, H = 600;                    // verdens-koordinater
+/* Banens højde er fast, bredden følger skærmens format. Ellers får en iPhone i
+   landskab (ca. 2,2:1) sorte bjælker i siderne, fordi banen er 16:10. Højden
+   holdes fast, fordi alle lodrette positioner i menu, butik og HUD er målt
+   til den — bredden er derimod altid centreret eller højreforankret.        */
+const VERDEN_H = 600;
+const W_MIN = 640;    // butikkens kort krymper med, så banen kan blive smal
+const W_MAX = 1700;   // over dette bliver banen bare tom
+let W = 960, H = VERDEN_H;                 // verdens-koordinater
 const canvas = document.getElementById("c");
 const wrap = document.getElementById("wrap");
 const ctx = canvas.getContext("2d");
@@ -61,6 +72,14 @@ const ctx = canvas.getContext("2d");
     document.head.appendChild(l);
   }
 
+  // Kører spillet fra hjemmeskærmen (eller i fuldskærm), skal rammen væk.
+  const iApp = () => matchMedia("(display-mode: standalone)").matches ||
+                     matchMedia("(display-mode: fullscreen)").matches ||
+                     navigator.standalone === true;
+  const opdaterRamme = () => document.body.classList.toggle("app", iApp());
+  opdaterRamme();
+  matchMedia("(display-mode: standalone)").addEventListener("change", opdaterRamme);
+
   // Service worker gør spillet spilbart uden internet, når det først er
   // hentet én gang. Kræver http(s) — springes over ved direkte filåbning,
   // og en fejl her må aldrig stoppe spillet.
@@ -71,6 +90,15 @@ const ctx = canvas.getContext("2d");
   }
 })();
 
+/* ---------- små hjælpere ---------- */
+const TAU = Math.PI * 2;
+const rnd = (a, b) => a + Math.random() * (b - a);
+const rndInt = (a, b) => Math.floor(rnd(a, b + 1));
+const pick = a => a[rndInt(0, a.length - 1)];
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const dist2 = (a, b) => { const dx = a.x - b.x, dy = a.y - b.y; return dx * dx + dy * dy; };
+const lerp = (a, b, t) => a + (b - a) * t;
+
 /* ---------- skalering til vindue ---------- */
 let scale = 1, portraet = false;
 function resize() {
@@ -80,6 +108,9 @@ function resize() {
   const hoejde = wrap.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
   // på en telefon i portræt bliver banen for lille til at spille på
   portraet = hoejde > bredde * 1.15 && bredde < 760;
+  // banen får skærmens format, så der ikke bliver bjælker i siderne
+  H = VERDEN_H;
+  W = clamp(Math.round(H * (bredde / hoejde)), W_MIN, W_MAX);
   scale = Math.min(bredde / W, hoejde / H);
   const dpr = Math.min(devicePixelRatio || 1, 2);
   canvas.width = Math.round(W * scale * dpr);
@@ -92,15 +123,6 @@ addEventListener("resize", resize);
 addEventListener("orientationchange", () => { resize(); setTimeout(resize, 250); });
 if (window.visualViewport) visualViewport.addEventListener("resize", resize);
 resize();
-
-/* ---------- små hjælpere ---------- */
-const TAU = Math.PI * 2;
-const rnd = (a, b) => a + Math.random() * (b - a);
-const rndInt = (a, b) => Math.floor(rnd(a, b + 1));
-const pick = a => a[rndInt(0, a.length - 1)];
-const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
-const dist2 = (a, b) => { const dx = a.x - b.x, dy = a.y - b.y; return dx * dx + dy * dy; };
-const lerp = (a, b, t) => a + (b - a) * t;
 
 /* ============================================================
    LYD — små genererede pop og plop
@@ -366,6 +388,11 @@ function startBoelge() {
 
   // sammensætning
   const koe = [];
+  // Antallet følger IKKE banens bredde. Det blev målt: en bredere bane giver
+  // både mere plads at flygte i og flere fjender, hvis antallet skaleres — og
+  // spillerens ildkraft er den bindende faktor, så skalering gjorde spillet
+  // sværere (median bølge 8) frem for ens. Uden skalering ligger en bred
+  // telefonbane på median 11 mod 13 på en 960 px bane. Tæt nok.
   const antal = erBoss
     ? Math.min(6, 2 + Math.floor(b / 2))
     : Math.min(TUNE.antalLoft, Math.round(TUNE.antalBase + TUNE.antalPrBoelge * b));
@@ -547,9 +574,11 @@ function opdater(dt) {
 
   /* --- skyd --- */
   p.cd = Math.max(0, p.cd - dt);
-  if (erTouch || mus.nede || tast[" "]) {
-    if (!erTouch || naermeste) skyd();
-  }
+  // På touch kræver skydning en finger på skærmen. Uden det kravet spillede
+  // spillet sig selv: auto-sigtet ryddede bølge efter bølge, mens telefonen
+  // lå urørt, og det så ud som om spillet sprang bølger over.
+  const vilSkyde = mus.nede || tast[" "] || (erTouch && touchStyring);
+  if (vilSkyde && (!erTouch || naermeste)) skyd();
   if (p.usaarlig > 0) p.usaarlig -= dt;
 
   /* --- spawn-kø --- */
@@ -1074,7 +1103,10 @@ function tegnButik() {
   txt(G.stjerner + " stjerner", W / 2 - 26, 127, 22, "#ffe066", "left");
 
   const n = G.butikKort.length;
-  const kw = 240, kh = 250, gap = 26;
+  // kortene krymper, hvis banen er smal (iPad, lille vindue), så de altid
+  // står side om side i stedet for at tvinge banen til at have bjælker
+  const gap = 26;
+  const kw = Math.min(240, Math.floor((W - 60 - gap * 2) / 3)), kh = 250;
   const x0 = W / 2 - (kw * n + gap * (n - 1)) / 2, y0 = 175;
   if (n === 0) {
     txt("Du har alt, hvad butikken kan tilbyde!", W / 2, 300, 26, "#9fe8ff", "center");
