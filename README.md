@@ -1,4 +1,4 @@
-# 🕹️ Spilhallen
+# 🕹️ Konrad's spillehal
 
 To spil i browseren, bygget til telefonen. Forsiden er en hal: man vælger spil,
 og rekorden for hvert spil står på kortet.
