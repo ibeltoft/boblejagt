@@ -9,7 +9,7 @@
    Hæv VERSION når forsiden ændres. Gamle caches ryddes ved aktivering,
    også de tidligere "boblejagt-*"-caches fra dengang spillet lå i roden. */
 
-const VERSION = "spilhal-v2";
+const VERSION = "spilhal-v3";
 const FILER = [
   "./",
   "./index.html",

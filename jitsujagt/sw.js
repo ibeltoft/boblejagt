@@ -6,7 +6,7 @@
    Hæv VERSION når index.html ændres — så henter telefonen den nye version
    næste gang den er online, og smider den gamle cache ud. */
 
-const VERSION = "jitsujagt-v1";
+const VERSION = "jitsujagt-v2";
 const FILER = [
   "./",
   "./index.html",

@@ -1,9 +1,10 @@
 # 🥋 Jitsujagt
 
-Optrapningsspil til telefonen i browseren. Du tapper blokke i stykker, køber
-træning for mynterne, klarer worlds og tager rebirth for at blive varigt
-stærkere. Der er ingen runde, der slutter — spillet gemmer, og du fortsætter,
-hvor du slap.
+Taktisk puslespil til telefonen i browseren. Blokken er en **struktur**, ikke
+en livsbar: du vælger hvor og i hvilken rækkefølge du slår, stødet forplanter
+sig gennem materialerne, og det, der mister sin bæring, falder ned og smadrer
+det, det lander på. Du har et slagbudget. Der er ingen runde, der slutter —
+spillet gemmer efter hvert slag.
 
 **Spil det her: https://ibeltoft.github.io/spillehal/jitsujagt/**
 
@@ -15,65 +16,85 @@ hvor du slap.
 
 ## Styring
 
-| Handling | Telefon | Computer |
+| Handling | Sådan |
+|---|---|
+| Se hvad et slag gør | Hold fingeren på en celle. De celler, der ryger, bliver blege |
+| Slå | Slip |
+| Fortryd sigtet | Træk fingeren uden for gitteret, før du slipper |
+| Vælg en teknik | Tryk på den i bjælken forneden, og derefter på en celle |
+| Åbn en fane | Teknikker, Worlds eller Rebirth i bunden |
+| Lyd til/fra | ♪ øverst · Tilbage til hallen | ⌂ øverst |
+
+Man slipper aldrig i blinde. Forhåndsvisningen viser altid præcis ét træk frem
+— dybden ligger i de tre træk derefter.
+
+## Materialerne
+
+| | Materiale | Hvad det gør |
 |---|---|---|
-| Slå | Tryk et vilkårligt sted i dojoen | Klik, mellemrum eller Enter |
-| Perfekt slag | Tryk, mens ringen er inde i det gule bånd | Samme |
-| Åbn en fane | Tryk på Træning, Våben, Worlds eller Rebirth | Klik |
-| Luk en fane | ✕ i hjørnet, eller tryk på fanen igen | ✕ eller Esc |
-| Lyd til/fra | ♪ øverst til højre | ♪ eller M |
-| Tilbage til hallen | ⌂ øverst til højre | ⌂ |
+| ⬜ | **Sten** | Tåler to slag. Gør ikke andet |
+| 🟧 | **Træ** | Splintrer langs sin årering — hele vejen gennem sammenhængende træ |
+| 🟦 | **Is** | Sprænger til alle fire naboer, men **kun** med vægt ovenpå |
+| ⬛ | **Jern** | Kan ikke slås i stykker. Sender stødet lige ned igennem |
+| 🟨 | **Led** | Bærer alt over sig. Går det, revner hele søjlen |
 
-Hele dojoen er trykfelt — man skal ikke ramme blokken præcist.
+Her ligger hele spillet: de tre kædetyper har modsatrettede forudsætninger.
+Fald kræver højde, sprængning kræver vægt ovenpå, og stød kræver en ubrudt
+søjle. **Du kan aldrig få dem alle tre** — og det stærkeste træk lige nu er
+ofte det, der ødelægger det stærkeste træk om to slag.
 
-## Sådan hænger det sammen
+## Slagbudget og bælter
 
-```
-tap blokken → mynter → træning → hårdere slag → dybere worlds
-     ↑                                                  ↓
-     └────────── rebirth: alt nulstilles, ────────────┘
-                 men skaden ganges med 3
-```
+Hver struktur har et **par** — det færreste antal slag, den kan ryddes på.
+Budgettet er `par + 3`.
 
-- **Kombo** stiger for hvert tryk og falder tilbage, hvis du holder pause i
-  mere end 1,2 sekund. Fuld kombo er ×1,9 skade.
-- **Perfekt slag** giver ×3 skade og fire ekstra kombotrin. Ringen starter
-  forfra, når du rammer, så perfekte slag kan trænes i takt.
-- **Bæltet** er din rang. Det giver +15 % mynter pr. trin og er porten til de
-  første tolv worlds.
-- **Våben** er det eneste, en rebirth ikke tager fra dig. Derfor er de dyre.
-- **Senseien** slår med, mens spillet er åbent. Den tjener ikke noget, mens
-  telefonen ligger i lommen — det er med vilje.
-- En **world**, du har klaret før, klares på én blok. Vejen tilbage til
-  fronten efter en rebirth er derfor kort.
+| Resultat | Mynter |
+|---|---|
+| Ryddet på par eller under | Fuld pris, og du rykker et bælte op |
+| Inden for budgettet | `(par / slag)²` af fuld pris |
+| Over budgettet | 25 % |
+
+Bæltet kan ikke købes. Det vindes ved at rydde en struktur på par — altså ved
+at kunne noget. Hvert bælte giver ét **fokus**.
+
+## Fokus: du kan eje alt, men ikke bære alt
+
+Teknikker købes for mynter og følger med gennem en rebirth. Men hver teknik
+koster fokus at have med, og fokus er knap. Med fem fokus kan du bære Knus og
+Nedslag — eller Sidespark alene. Hvert valg lukker en dør.
+
+| Teknik | Fokus | Virkning |
+|---|---|---|
+| Stød | 0 | Ét slag på én celle. Altid med |
+| Knus | 2 | To slag på samme celle |
+| Nedslag | 2 | Rammer cellen og den under den |
+| Sidespark | 3 | Rammer hele rækken |
+| Lodret stød | 3 | Rammer hele søjlen nedad |
+| Røntgen | 2 | Afslører fire skjulte celler — koster ikke et slag |
+| Efterslag | 3 | Rydder et slag fem celler, er slaget gratis |
+| Tyngde | 2 | Fald på ét felt gør også skade |
+
+## Rebirth
+
+Du mister mynter, bælte, world og din udrustning. Du beholder alle teknikker,
+du har købt. Du får **fokus** — og bonussen vokser, jo dybere du nåede først.
+
+Der er ingen port. Tidlig rebirth mod lidt fokus og sen rebirth mod meget er
+to planer, der begge kan være rigtige. Det er spillets største beslutning.
 
 ## Rekorden på hallens tavle
 
-Tavlen viser **magt** = `rebirth × 1000 + dybeste world`. Én rebirth vejer
-altså mere end tusind worlds — og det er rigtigt, for en rebirth kræver, at
-man har klaret syv worlds mere end sidst.
-
-Fremskridtet gemmes pr. spillernavn, så to søskende kan dele telefonen uden at
-ødelægge hinandens træning.
-
-## Point og tempo
-
-Målt med en robot, der spiller spillets egen kode 3,5 gange i sekundet:
-
-| | Første rebirth | Tap pr. blok | Rebirth 5 | Rebirth 9 |
-|---|---|---|---|---|
-| Tid | 7 min | 4–11 | efter 15 min | efter 50 min |
-
-Tallene og hele balancen står i `DESIGN.md`.
+Tavlen viser **magt** = `rebirth × 1000 + dybeste world × 10 + bælte`.
+Fremskridtet gemmes pr. spillernavn, så to søskende kan dele en telefon.
 
 ## Filer
 
 | Fil | Rolle |
 |---|---|
-| `index.html` | Hele spillet — regler, grafik, lyd, gem/hent. Ingen afhængigheder. |
-| `sw.js` | Service worker, så spillet virker uden internet efter første besøg. |
-| `manifest.webmanifest` | Gør spillet installerbart på hjemmeskærmen. |
-| `icon-*.png` | Ikon til hjemmeskærmen. |
-| `DESIGN.md` | Spildesignet: mekanik, balancetal, målinger og idéer til næste version. |
+| `index.html` | Hele spillet — regler, generator, grafik, lyd, gem/hent |
+| `sw.js` | Service worker, så spillet virker uden internet |
+| `manifest.webmanifest` | Gør spillet installerbart på hjemmeskærmen |
+| `icon-*.png` | Ikon til hjemmeskærmen |
+| `DESIGN.md` | Spildesignet, målemetoden og de porte, designet skulle bestå |
 
 Balancetallene står samlet i `TUNE` øverst i `index.html`.

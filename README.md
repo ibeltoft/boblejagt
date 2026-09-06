@@ -9,7 +9,7 @@ og rekorden for hvert spil står på kortet.
 |---|---|---|
 | 🫧 **Boblejagt** | Arkadespil til børn — pop slimklatter, saml stjerner, find nye våben | [boblejagt/](https://ibeltoft.github.io/spillehal/boblejagt/) |
 | 🧩 **Klodsjagt** | Blokpuslespil — læg tre brikker ad gangen og ryd striber | [klodsjagt/](https://ibeltoft.github.io/spillehal/klodsjagt/) |
-| 🥋 **Jitsujagt** | Optrapning — smadr blokke, træn din jitsu, klar worlds, tag rebirth | [jitsujagt/](https://ibeltoft.github.io/spillehal/jitsujagt/) |
+| 🥋 **Jitsujagt** | Taktisk puslespil — slå strukturen ned i den rigtige rækkefølge | [jitsujagt/](https://ibeltoft.github.io/spillehal/jitsujagt/) |
 
 Repoet hedder `spillehal`, så adresserne bliver `/spillehal/<spil>/`. Det er
 samtidig prisen: den gamle adresse `ibeltoft.github.io/boblejagt/` findes ikke
@@ -38,10 +38,10 @@ intet sendes nogen steder hen.
 | `spilhal.tavle.<spil-id>` | Tavlen for ét spil: `[{navn, point, dato}]`, sorteret faldende, højst 10 pladser. |
 
 De to første spil skriver point til tavlen. Jitsujagt har ingen runde, der
-slutter, og skriver i stedet **magt** = `rebirth × 1000 + dybeste world`. Det
-er stadig bare et tal, der skal være størst muligt, så tavlen behøver ikke
-vide forskel. Jitsujagt gemmer derudover selve fremskridtet pr. spillernavn i
-`jitsujagt-v1.<navn>`, så to søskende kan dele en telefon.
+slutter, og skriver i stedet **magt** = `rebirth × 1000 + dybeste world × 10 +
+bælte`. Det er stadig bare et tal, der skal være størst muligt, så tavlen
+behøver ikke vide forskel. Jitsujagt gemmer derudover selve fremskridtet pr.
+spillernavn i `jitsujagt-v2.<navn>`, så to søskende kan dele en telefon.
 
 Tavlen har **én plads pr. navn** — den bedste. Derfor kan et spil skrive til den
 løbende uden at fylde den med den samme spillers dårlige forsøg.

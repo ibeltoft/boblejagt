@@ -1,214 +1,229 @@
 # JITSUJAGT — spildesign
 
-Optrapningsspil til telefonen i browseren. Man tapper blokke i stykker, køber
-træning for mynterne, klarer worlds og tager rebirth for at blive varigt
-stærkere. Der er ingen runde, der slutter: spillet gemmer efter hver blok, og
-man fortsætter, hvor man slap.
+Taktisk puslespil til telefonen. Blokken er en struktur af materialer med hver
+sin kæderegel; man vælger hvor og i hvilken rækkefølge man slår, inden for et
+slagbudget. Mynterne køber teknikker, men fokus bestemmer, hvor mange man kan
+bære ad gangen, og en rebirth bytter alt fremskridt for mere fokus.
 
-Målgruppe: alle fra ca. 7 år. Sessionslængde: 2–8 minutter pr. rebirth efter
-den første, målt med en robot, der spiller spillets egen kode — se afsnit 8.
-
-Spillet ligger i sin egen mappe og deler intet med de to andre spil ud over
-repositoriet og `SPILHAL`-blokken. Ingen afhængigheder, ingen billed- eller
-lydfiler.
+Målgruppe: fra ca. 7 år, med et loft der ikke er nået af en voksen.
+Sessionslængde: 1–3 minutter pr. blok, 5–12 beslutninger i hver.
 
 ---
 
-## 1. Designprincipper
+## 1. Baggrund: hvorfor spillet blev skrevet om
+
+Den første udgave af Jitsujagt var et tapper-spil: blokken var en livsbar, og
+man trykkede den ned. Balancen var grundigt målt — og alligevel forkert på den
+måde, der er værst.
+
+En robot med reglen *"køb det billigste, du har råd til, og tryk hurtigt"*
+spillede spillet optimalt. Alt andet var pynt:
+
+| Målt på den gamle udgave | |
+|---|---|
+| Beslutninger pr. minut med mere end ét godt svar | **0** |
+| Senseien, der blev solgt som et system | +4,1 % skade for 22,1 mio mynter |
+| Hurtighed vs. Kraft | To knapper, der gangede ind i **samme** tal |
+| At sigte efter det gyldne bånd | 3,80 skade/sek. At hamre blindt: **7,50** |
+
+Den sidste er værd at dvæle ved: færdighedsmekanikken **straffede** den, der
+brugte den, og perfekt-andelen svingede ikke-monotont med tryktempoet (12 % ved
+3,0 tryk/sek, 33 % ved 3,5, 14 % ved 4,0), så en spiller kunne umuligt opdage
+hvorfor.
+
+Grundfejlen var strukturel, ikke numerisk: indtægten voksede 1,81× pr. world,
+mens hver pris uden for Kraft var fast. **Fejl fordampede.** Fra world 28
+finansierede én blok resten af spillets ikke-Kraft-økonomi for evigt.
+
+Fejlen i *målingen* var mere lærerig: den varierede fingerhastighed
+(2,2/3,5/5 tryk/sek) og holdt strategien fast. Den målte én akse ud af to og
+kunne derfor pr. konstruktion ikke opdage, at der ikke var nogen strategi.
+
+## 2. Designprincipper
 
 | Princip | Hvad det betyder i praksis |
 |---|---|
-| **Én finger, ét tryk** | Hele dojoen er trykfelt. Man skal ikke ramme blokken, kun skærmen. Alt andet — køb, rejser, rebirth — ligger i fire faner i bunden, uden for slagområdet. |
-| **Altid noget at købe** | Kraft har intet loft og bliver aldrig for dyr i mere end et minut. Fanen får en gul prik, når der er råd til noget, så man ikke skal åbne alle fire for at opdage det. |
-| **Fremskridt kan ikke tabes** | Der er ingen død, ingen timer, ingen straf. Det eneste, man giver fra sig, er det, man selv vælger at give fra sig i en rebirth. |
-| **Tallene skal kunne læses** | 12,4 mio, ikke 12.400.000. Blokkens revner viser livet, så man ikke behøver læse tallet under den. |
-| **Rebirth skal føles som en gave** | Man mister mynter, træning og bælte — men de første mange worlds smadres bagefter på ét slag. Vejen tilbage er kort, og det er hele pointen. |
+| **Se ét træk frem, tænk tre** | Forhåndsvisningen viser præcis, hvad et slag gør, mens fingeren holdes. Der er ingen skjult fysik — dybden ligger i rækkefølgen, ikke i uvidenhed. |
+| **Hvert valg lukker en dør** | Fokus gør, at man kan eje alt og alligevel kun bære noget af det. Rebirth bytter alt fremskridt for mere fokus. Uden gensidig udelukkelse er "hvad køber jeg" en køreplan, ikke et valg. |
+| **Generatoren garanterer beslutningen** | En struktur bliver kun godkendt, hvis grådigt spil er dårligere end optimalt. Der er altså noget at tænke over i hver eneste blok — ikke bare i gennemsnit. |
+| **Sjusk koster bonus, aldrig fremskridt** | Sprænger man budgettet, får man 25 % af mynterne. Der er ingen død og ingen mur. Et barn kan slå løs og komme videre. |
+| **Rang vindes, ikke købes** | Bæltet kommer af at rydde en struktur på par. Det er den eneste ting i spillet, penge ikke kan skaffe. |
 
-## 2. Kerneloop
+## 3. Kerneloop
 
 ```
-tap blokken → mynter → træning → hårdere slag → dybere worlds → flere mynter
-     ↑                                                                ↓
-     └──────── rebirth: alt nulstilles undtagen våben, ──────────────┘
-               men skaden ganges med 3 for altid
+hold på en celle → se konsekvensen → slip → kæden kører → strukturen falder
+        ↑                                                        ↓
+        └── mynter efter hvor tæt på par ── teknikker ── fokus ──┘
+                                                          ↓
+                              rebirth: alt for mere fokus, bonus efter dybde
 ```
 
-Én blok er 3–9 slag, altså 1–3 sekunder. En world er 10 blokke. En rebirth er
-7 worlds mere, end den forrige krævede.
+## 4. Materialerne og hvorfor der er dybde
 
-## 3. Styring
-
-| Handling | Telefon | Computer |
+| Materiale | Liv | Regel |
 |---|---|---|
-| Slå | Tryk et vilkårligt sted i dojoen | Klik, mellemrum eller Enter |
-| Perfekt slag | Tryk, mens ringen er inde i det gule bånd | Samme |
-| Åbn/luk en fane | Tryk på fanen | Klik, eller Esc for at lukke |
-| Lyd til/fra | ♪ øverst til højre | ♪ eller M |
-| Tilbage til hallen | ⌂ øverst til højre | ⌂ |
+| Sten | 2 | Ingen |
+| Træ | 1 | Splintrer langs sin fiberretning gennem sammenhængende træ |
+| Is | 1 | Sprænger til alle fire naboer — **kun** hvis der var vægt ovenpå |
+| Jern | — | Kan ikke skades. Sender stødet lodret videre nedad |
+| Led | 1 | Bærer alt over sig; brister det, revner hele søjlen |
 
-Spillet starter med navneboksen fra spilhallen. Navnet er ikke kun pynt her:
-**fremskridtet gemmes pr. navn** (`jitsujagt-v1.<navn>`), så to søskende kan
-dele en telefon uden at ødelægge hinandens træning. Magten går løbende til
-hallens tavle (`spilhal.tavle.jitsujagt`).
+Oveni: en celle uden noget under sig falder, og et fald på to felter eller mere
+skader både den faldende celle og den, den lander på.
 
-## 4. Blokken og de perfekte slag
+**Kilden til dybde er, at de tre kædetyper har modsatrettede forudsætninger:**
+fald kræver højde, sprængning kræver vægt ovenpå, og stød kræver en ubrudt
+lodret linje. Man kan aldrig få alle tre.
 
-En ring krymper ind mod blokken på 0,9 sekund og starter forfra. De sidste
-13 % af vejen er et gyldent bånd. Rammer man der, giver slaget **×3 skade og
-fire ekstra kombotrin** — og ringen starter forfra med det samme, så perfekte
-slag kan sættes i takt.
+Derfor taber en grådig spiller. Det bedste mål er ofte leddet — alt over det
+falder gratis ned — men leddet er også dét, der holder vægten på isen, og is
+sprænger kun under tryk. Et nedfaldet bunkeslag efterlader en lav bunke uden
+bæringsstruktur, og en lav bunke har ingen kæder tilbage. **Et træks værdi
+afhænger af strukturens tilstand efter trækket, ikke af trækkets eget udbytte** —
+og det kan ikke koges ned til én regel.
 
-Det er spillets eneste færdighed, og den er bygget til ikke at straffe: et
-almindeligt tryk gør altid fuld skade. Man kan spille hele spillet uden at
-ramme et eneste perfekt slag; det tager bare længere tid.
+## 5. Slagbudget og belønning
 
-**Komboen** stiger med ét trin pr. tryk op til 60 og falder helt bort, hvis
-man holder pause i mere end 1,2 sekund. Fuld kombo er ×1,9. Sammen med de
-perfekte slag betyder det, at en spiller, der tapper i takt, slår omkring
-dobbelt så hårdt som en, der ikke gør.
+Hver struktur har et `par`. Budgettet er `par + 3` (`par + 4`, hvis der er
+skjulte celler).
 
-## 5. Økonomien
+```
+mynter = grundværdi(world) × min(1,5 ; (par / slag)²)      hvis slag ≤ budget
+mynter = grundværdi(world) × 0,25                          ellers
+```
 
-Hele balancen hviler på ét regnestykke:
+Kurven blev valgt ved måling, ikke ved smag. Fem kandidater blev kørt mod de
+samme strukturer:
 
-| Størrelse | Værdi | Følger af |
+| Kurve | `G_tot` | `F_strat` | Grådig spiller inden for budget |
+|---|---|---|---|
+| Lineær (`par/slag`) | 1,47 | 0,425 | 100 % |
+| Kvadratisk | 2,05 | 0,465 | 100 % |
+| **Budget par+3, ellers 25 %** | **2,45** | **0,449** | **88 %** |
+| Budget par+2, ellers 25 % | 2,96 | 0,445 | 78 % |
+| Budget par+2, ellers intet | 7,99 | 0,401 | 78 % |
+
+Den nederste giver det største gab, men rammer et barn for hårdt: hver femte
+blok ville give nul. Par+3 med restbetaling er det punkt, hvor en spiller, der
+bare slår løs, stadig klarer 88 % — mens den, der planlægger, får over det
+dobbelte.
+
+## 6. Fokus, teknikker og rebirth
+
+Teknikker købes for mynter og overlever en rebirth. Men de koster **fokus** at
+bære, og fokus er knap: 5 fra start, +1 pr. bælte, +1 og opefter pr. rebirth.
+Det er spillets gensidige udelukkelse — den eneste grund til, at "hvad køber
+jeg" ikke bare er en køreplan.
+
+Teknikkerne er **verber, ikke tal**: de ændrer hvor stødet lander, aldrig hvor
+hårdt det slår. Derfor kan en opgradering ikke gøre puslespillet irrelevant,
+kun give flere måder at løse det på. Det er den direkte modgift mod den gamle
+udgaves fejl, hvor Kraft var én knap uden loft, der altid var det rigtige svar.
+
+**Rebirth har ingen port.** Bonussen er `1 + dybeste/8` fokus, så tidlig
+rebirth mod lidt og sen rebirth mod meget er to konkurrerende planer.
+
+## 7. Generatoren
+
+Den vigtigste kode i spillet. For hver blok:
+
+1. Træk en tilfældig struktur efter worldens materialevægte, og lad
+   tyngdekraften sætte den.
+2. Kør en **smal** beam-søgning (bredde 8) → `grov`.
+3. Kør den grådige spiller → `graadig`.
+4. Er `graadig ≤ grov`, kasseres strukturen: der er intet at tænke over.
+5. Ellers køres den **præcise** søgning (bredde 40) for at få `par`.
+
+Skridt 2–4 er ikke et gæt. Finder den smalle søgning en løsning på `grov` slag,
+er det sande par højst `grov`; er den grådige spiller dårligere end `grov`, er
+han med sikkerhed også dårligere end par. Forsigtningen er altså gratis i
+præcision og sparer 5,5× regnetid:
+
+| | Før forsigtning | Efter |
 |---|---|---|
-| Blok-HP i world *w* | `70 × 2^(w-1)` | en world er dobbelt så hård |
-| Mynter pr. blok | `4 × 1,81^(w-1)` | |
-| Kraft: skade | `×1,25` pr. niveau | |
-| Kraft: pris | `×1,30` pr. niveau | |
-| Kraft-niveauer pr. world | `ln 2 / ln 1,25 = 3,11` | HP fordobles |
-| Prisen på de niveauer | `1,30^3,11 = 2,26×` pr. world | |
-| Mynterne stiger kun | `1,81×` pr. world | |
-| **Muren** | `2,26 / 1,81 = 1,25×` dyrere pr. world | forskellen |
+| World 10 | 758 ms | 200 ms |
+| World 25 | 1.876 ms | 341 ms |
 
-Det sidste tal er hele designet. Havde mynterne fulgt priserne præcist
-(1,81 → 2,26), ville hver world tage lige lang tid for evigt, og der ville
-aldrig være en grund til at tage rebirth. Nu bliver hver world 25 % dyrere end
-den forrige, og på et tidspunkt står man stille — indtil rebirth.
+Oveni bliver næste blok forberedt, mens spilleren tænker over denne, så
+omkostningen aldrig ses som en frossen skærm.
 
-En rebirth ganger skaden med 3. Det svarer til `ln 3 / ln 1,25 = 4,9` worlds
-gratis. Resten skal trænes, og det er derfor kravet stiger **7** worlds pr.
-rebirth. Se afsnit 9 for, hvad 5 og 8 gør ved spillet.
+## 8. Måling af dybde
 
-De øvrige opgraderinger har alle et loft og giver tilsammen kun ×23 skade.
-Det er med vilje: de er krydderi, ikke kurven. En tidlig udgave gav dem ×240
-tilsammen, og så væltede de treadmillen fuldstændig — se afsnit 9.
+Dette afsnit er grunden til, at spillet blev skrevet om, og til at det denne
+gang kan forsvares. Metoden adskiller to akser, som den gamle måling blandede
+sammen:
 
-## 6. Rebirth og mestrede worlds
-
-| Ved en rebirth | |
-|---|---|
-| Væk | mynter, kraft, hurtighed, kritisk, sensei, bælte, position |
-| Beholdt | **våben**, mestrede worlds, rebirth-bonussen |
-| Nyt | skade `×3` oveni — for altid |
-
-**En world, man har klaret før, klares på én blok.** Uden den regel var vejen
-tilbage til fronten 10 blokke × 20 worlds = 200 tomme tryk, hvor alt dør på
-ét slag. Med den er den 20 tryk og tager et halvt minut — en kort
-magtdemonstration i stedet for en grind.
-
-World-bonussen (4 × en bloks mynter) udbetales kun **første gang i dette liv**,
-man klarer en world. Ellers ville det bedste træk være at blive stående i en
-mestret world: den klares jo på én blok, og bonussen ville komme for hver
-eneste blok, altså fem gange normal indtægt.
-
-## 7. Worlds, bælter og våben
-
-**Worlds** har tyve navne med hver sit farvepar. Efter den tyvende køres rækken
-om med et rundetal (`Havedojoen II`), så stigen aldrig får en ende. Det er ikke
-dovenskab: et loft på stigen gør rebirth-bonussen gratis, og så degenererer
-spillet til ét tap pr. blok — det er målt, se afsnit 9.
-
-**Bælter** er rangen i dette liv: tolv trin fra hvidt til regnbue, +15 % mynter
-pr. trin, og porten til de første tolv worlds. Efter world 12 er man mester, og
-der er ingen porte. Bæltet nulstilles ved rebirth og købes hurtigt op igen.
-
-**Våben** er det eneste, en rebirth ikke tager fra dig — seks stykker fra næver
-til dragefist, tilsammen ×5,6 skade. Derfor er de dyre, og derfor er de det,
-man sparer op til hen over flere liv.
-
-**Senseien** slår med, mens spillet er åbent, og kun da. Der er ingen indtjening,
-mens telefonen ligger i lommen. Det er et bevidst valg: spillet skal ikke
-belønne, at man tjekker telefonen, men at man spiller.
-
-## 8. Målinger
-
-En robot spiller spillets **egen kode** — samme `index.html`, som bliver sendt
-af sted — og køber altid det billigste, den har råd til. Den sigter ikke efter
-de perfekte slag, så tallene er et gulv: et menneske, der rammer båndet,
-kommer hurtigere frem.
-
-**3,5 tryk i sekundet (almindelig spiller):**
-
-| Rebirth | Tid | Blokke | Tap pr. blok (median / p90) | Nået til world |
-|---|---|---|---|---|
-| 1 | 7,1 min | 174 | 8 / 12 | 16 |
-| 2 | 2,2 min | 76 | 4 / 13 | 23 |
-| 3 | 1,2 min | 80 | 3 / 5 | 30 |
-| 5 | 1,5 min | 95 | 3 / 6 | 44 |
-| 7 | 2,3 min | 109 | 5 / 8 | 58 |
-| 9 | 3,3 min | 118 | 6 / 11 | 72 |
-
-I alt 24 minutter til rebirth 9 og magt 9.072.
-
-**Tre spillertyper, tid til hver rebirth (minutter):**
-
-| Spiller | r1 | r2 | r3 | r5 | r7 | r9 |
-|---|---|---|---|---|---|---|
-| Ivrig (5 tryk/sek) | 5,4 | 1,8 | 1,0 | 1,3 | 1,8 | 2,5 |
-| Almindelig (3,5) | 7,1 | 2,2 | 1,2 | 1,5 | 2,3 | 3,3 |
-| Rolig (2,2) | 17,4 | 5,5 | 2,7 | 3,6 | 5,3 | 7,8 |
-
-Kurven er med vilje en flad U: det første liv er langt, fordi man skal opdage
-spillet; midterlivene er korte, fordi våbnene lander der; derefter vokser
-løbene stille og roligt igen. Medianen for tap pr. blok holder sig mellem 3 og
-13 hele vejen, og den tungeste tiendedel når højst 18 — spillet bliver aldrig
-til ét tap pr. blok, og det bliver aldrig til en mur.
-
-Tallene svinger ikke: robotten spiller uden tilfældighed ud over de kritiske
-slag, og to kørsler af det samme ligger inden for et par tiendedele af et
-minut. Til gengæld er de et gulv, ikke et gennemsnit — de perfekte slag er
-ikke med.
-
-## 9. Fem forsøg, der ikke virkede
-
-Balancen er ikke gættet frem. Den blev fundet ved at bygge modellen om fem
-gange, og hver gang målte simuleringen præcis, hvordan det gik galt. De står
-her, fordi de er den egentlige begrundelse for tallene:
-
-| Forsøg | Hvad der skete | Hvad det lærte |
+| Akse | Hvad den er | Gammel måling |
 |---|---|---|
-| **Loft på 12 worlds** | Rebirth-bonussen blev gratis, når stigen var kørt til ende. 736 rebirths på tre timer, hver blok død på ét tap. | Lineært indhold kan ikke følge med geometrisk styrke. Stigen skal være uendelig. |
-| **Rebirth ganger også mynterne** | Opgraderinger blev permanent billigere. Løb 2 og frem kollapsede til ét tap pr. blok. | Rebirth må kun gange skaden. |
-| **Bæltet som møntport** | Efter en rebirth var man stærk, men fattig. Porten tvang 40 trivielle blokke igennem pr. world. | En port, man ikke kan betale, er en grind. Bæltet blev en rang. |
-| **Permanent world-adgang** | Man kunne stå i en dyb world med enorm indtægt og faste priser. 736 rebirths, world 741. | Rebirth skal koste positionen — ellers er den gratis. |
-| **Stærke bonusser (×240)** | Fart, kritisk, sensei og våben leverede tilsammen otte worlds gratis, koncentreret i world 5–16. Tap pr. blok faldt fra 25 til 0,1. | De afgrænsede bonusser skal være krydderi (×23), ikke kurven. |
+| Eksekvering | fingerhastighed, timing | 3 punkter |
+| **Beslutning** | hvor og i hvilken rækkefølge man slår | **1 punkt** |
 
-Og to tal, der blev fundet ved at måle i stedet for at regne: kravet pr.
-rebirth skal være 7. Ved 5 kollapser løbene til et halvt minut med 68 % ét-tap-blokke;
-ved 8 vokser de til over 13 minutter med 23 tap pr. blok. Regnestykket i
-afsnit 5 pegede på 5 — virkeligheden sagde 7, fordi kraft-niveauerne hober sig
-op inde i et liv.
+### Metrikkerne
 
-## 10. Filer
+| Mål | Definition | Port |
+|---|---|---|
+| `F_strat` | Hvor stor en del af færdighedens værdi, der ligger over en simpel tommelfingerregel: `(s_opt − s_grådig) / (s_opt − s_tilfældig)`, hvor `s = 1/slag` | ≥ 0,20 |
+| `DHI` | Hvor tæt den bedste simple regel kommer på optimalt spil | ≤ 0,92 |
+| `G_tot` | Tilfældig spiller mod optimal | ≥ 2,0 |
+| Grådig = optimal | Andel strukturer, hvor den naive spiller allerede er optimal | < 70 % |
 
-| Fil | Rolle |
-|---|---|
-| `index.html` | Hele spillet — regler, grafik, lyd, gem/hent. Ingen afhængigheder. |
-| `sw.js` | Service worker, så spillet virker uden internet efter første besøg. |
-| `manifest.webmanifest` | Gør spillet installerbart på hjemmeskærmen. |
-| `icon-*.png` | Ikon til hjemmeskærmen, tegnet programmatisk i samme farver som spillet. |
-| `README.md` | Kort spillervejledning. |
-| `DESIGN.md` | Dette dokument. |
+### Resultat på spillets egne regler
 
-Alle balancetal står samlet i `TUNE` øverst i `index.html`.
+Målt på **rå** strukturer — altså også dem, generatoren ville kassere — så
+tallet ikke er skønmalet af sin egen udvælgelse:
 
-## 11. Idéer til næste version
+| World | Gitter | Par | Grådig | Tilfældig | `F_strat` | `DHI` | Godkendt |
+|---|---|---|---|---|---|---|---|
+| 1 | 4×4 | 4,9 | 6,2 | 8,9 | 0,403 | 0,817 | 58 % |
+| 2 | 4×4 | 5,3 | 6,3 | 9,6 | 0,357 | 0,846 | 55 % |
+| 3 | 4×4 | 5,6 | 6,3 | 9,7 | 0,222 | 0,907 | 45 % |
+| 5 | 4×5 | 5,2 | 6,8 | 10,8 | 0,443 | 0,771 | 68 % |
+| 8 | 5×5 | 7,5 | 8,9 | 13,1 | 0,333 | 0,865 | 63 % |
+| 12 | 5×6 | 6,6 | 7,9 | 14,8 | 0,269 | 0,839 | 58 % |
+
+Til sammenligning scorede den gamle udgave `F_strat` = 0,00 og `DHI` = 1,00.
+
+Da spillet kun serverer strukturer, hvor grådig er dårligere end par, er den
+oplevede `F_strat` højere end tabellen. Og med belønningskurven fra afsnit 5
+bliver `G_tot` 2,45.
+
+### To ting, målingen fangede undervejs
+
+**World 1 dumpede først** med `F_strat` 0,108 og `DHI` 0,985. Årsag: is og led
+lå oprindeligt i world 3 og 7, så den første world kun havde sten og træ — ingen
+kæder, altså ét slag pr. celle, og grådigt spil *var* optimalt. Spillets bedste
+idé lå gemt bag syv worlds. Materialerne blev flyttet frem til world 1 og 2.
+
+**Beam-bredde 14 var for svag.** Ved world 8 fandt bredde 40 en løsning på 10
+slag, hvor bredde 14 troede par var 11 — og på 6×7 fandt den slet ingen. "Par"
+var altså kunstigt højt, budgettet for mildt og bæltet for let at vinde. Rettet
+til bredde 40, og gitteret fik et loft på 6×6, så en blok bliver ved med at
+være 5–12 beslutninger frem for 20.
+
+### Forbehold
+
+Målingerne bruger beam-søgning som loft, ikke bevist optimum. En stærkere
+søger ville finde lavere par og dermed **højere** `F_strat` og **lavere** `DHI`
+— tallene er altså et gulv, ikke et loft. Der er ikke målt på rigtige
+mennesker: om en syvårig faktisk kan læse en struktur, er ikke afgjort her.
+
+## 9. Hvad der blev bevaret fra den gamle udgave
+
+Koden overlevede, fiktionen overlevede, økonomien blev skrottet. Bevaret:
+`SPILHAL`-blokken, gem pr. spillernavn, navneboksen, iOS-opsætningen med
+safe-area og touch-action, lydobjektet, service worker, manifest, ikoner,
+worldnavnene med farvepar, bælterne og ét-finger-princippet.
+
+Skrottet: Kraft som uendelig knap, Hurtighed, Kritisk, Sensei, faste
+våbenpriser, rebirth-porten, timing-ringen og blok-HP som en worlds eneste
+indhold.
+
+## 10. Idéer til næste version
 
 | Idé | Hvorfor |
 |---|---|
-| Rebirth, når man vil, med en bonus efter hvor dybt man nåede | Kravet er i dag et fast tal. Kunne man tage rebirth tidligt mod en mindre bonus, ville valget være spillerens i stedet for spillets. |
-| Chef-blok i hver tiende world | Ti ens blokke pr. world er en rytme uden accent. En chef med dobbelt liv og en belønning ville give worlden en slutning. |
-| Daglig træning: ét gratis våbentrin om dagen | Våbnene er det, man venter længst på. Et lille dagligt skub ville give en grund til at komme tilbage — uden notifikationer. |
-| Bælteprøve i stedet for bæltekøb | Bæltet købes i dag for mynter. En prøve — fx »ram tre perfekte slag i træk« — ville gøre rangen til noget, man kan. |
+| Daglig struktur, ens for alle | Samme blok samme dag giver en grund til at komme tilbage — og gør par til noget, man kan sammenligne. |
+| Vis par-løsningen efter en sprængt blok | Man lærer mest af det træk, man ikke så. I dag får man kun at vide, at det gik galt. |
+| Chef-struktur hver sjette blok | Seks ens blokke pr. world er en rytme uden accent. |
+| Måling mod rigtige spillere | Alt i afsnit 8 er robotter. En ε-støjet menneskemodel er stadig en model. |
