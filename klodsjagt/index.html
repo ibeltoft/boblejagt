@@ -15,6 +15,108 @@
   canvas{display:block;touch-action:none}
 </style>
 <div id="wrap"><canvas id="c"></canvas></div>
+<!-- ---------- spilhallens navneboks (samme markup i alle spil) ---------- -->
+<style>
+  #navneboks{position:fixed;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;
+    padding:24px;box-sizing:border-box;background:rgba(8,11,32,.86);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+  #navneboks[hidden]{display:none}
+  #navneboks .kort{width:100%;max-width:320px;box-sizing:border-box;padding:26px 22px 20px;
+    border-radius:24px;background:#1b2350;border:1px solid rgba(255,255,255,.12);
+    box-shadow:0 24px 70px rgba(0,0,0,.55);text-align:center;color:#fff}
+  #navneboks .mini{font-size:12px;letter-spacing:.16em;color:rgba(255,255,255,.42);font-weight:700}
+  #navneboks h1{margin:8px 0 18px;font-size:24px;font-weight:800}
+  /* 17px: under 16px zoomer iOS ind på feltet, og så sidder spillet skævt bagefter */
+  #navneboks input{width:100%;box-sizing:border-box;padding:13px 14px;margin:0 0 14px;
+    font-family:inherit;font-size:17px;font-weight:700;text-align:center;color:#fff;border:none;border-radius:14px;
+    background:rgba(255,255,255,.10);outline:2px solid transparent}
+  #navneboks input:focus{outline-color:#66d9e8}
+  #navneboks button{width:100%;padding:14px;border:none;border-radius:999px;background:#37b24d;
+    color:#fff;font-family:inherit;font-size:17px;font-weight:800;cursor:pointer}
+  #navneboks button:active{transform:translateY(1px)}
+  #navneboks a{display:inline-block;margin-top:14px;font-size:14px;color:rgba(255,255,255,.5);text-decoration:none}
+</style>
+<div id="navneboks" hidden>
+  <div class="kort">
+    <div class="mini">SPILHALLEN</div>
+    <h1>Hvem spiller?</h1>
+    <input id="navnefelt" type="text" maxlength="14" placeholder="Dit navn"
+           autocomplete="nickname" autocapitalize="words" spellcheck="false" enterkeyhint="go">
+    <button id="navneknap" type="button">Spil</button>
+    <a href="../">← Tilbage til spilhallen</a>
+  </div>
+</div>
+<script>
+"use strict";
+/* ============================================================
+   SPILHAL — fælles spillernavn og highscore-tavle
+   Nøglerne deles af alle spil på samme domæne, så forsiden kan vise
+   rekorderne. Kontrakten står i repoets README — den samme kode ligger
+   i hvert spil, så et spil stadig er én fil uden afhængigheder.
+   ============================================================ */
+const SPILHAL = {
+  NAVNE_NOEGLE: "spilhal.spiller",
+  MAKS: 10,
+  tavleNoegle(spil) { return "spilhal.tavle." + spil; },
+
+  // localStorage kan være blokeret (privat vindue, direkte filåbning) —
+  // spillet skal virke alligevel, bare uden at huske noget.
+  spiller() { try { return localStorage.getItem(this.NAVNE_NOEGLE) || ""; } catch (e) { return ""; } },
+
+  saetSpiller(navn) {
+    const rent = String(navn || "").replace(/\s+/g, " ").trim().slice(0, 14) || "Spiller";
+    try { localStorage.setItem(this.NAVNE_NOEGLE, rent); } catch (e) { }
+    return rent;
+  },
+
+  tavle(spil) {
+    try {
+      const raa = JSON.parse(localStorage.getItem(this.tavleNoegle(spil)) || "[]");
+      if (!Array.isArray(raa)) return [];
+      return raa.filter(r => r && typeof r.point === "number" && typeof r.navn === "string");
+    } catch (e) { return []; }
+  },
+
+  /* Én plads pr. navn — den bedste. Så kan et spil skrive løbende uden at
+     fylde tavlen med den samme spillers dårlige forsøg. Returnerer true,
+     hvis navnet nu ligger øverst.                                        */
+  gem(spil, navn, point) {
+    point = Math.round(point);
+    if (!(point > 0) || !navn) return false;
+    const liste = this.tavle(spil);
+    const dato = new Date().toISOString().slice(0, 10);
+    const i = liste.findIndex(r => r.navn === navn);
+    if (i >= 0) {
+      if (liste[i].point >= point) return false;
+      liste[i] = { navn, point, dato };
+    } else liste.push({ navn, point, dato });
+    liste.sort((a, b) => b.point - a.point);
+    if (liste.length > this.MAKS) liste.length = this.MAKS;
+    try { localStorage.setItem(this.tavleNoegle(spil), JSON.stringify(liste)); } catch (e) { }
+    return liste[0].navn === navn;
+  },
+
+  bedste(spil) { return this.tavle(spil)[0] || null; }
+};
+
+/* Navneboksen vises ved hver start med det huskede navn skrevet ind, så
+   man kan spille videre med ét tryk — eller skrive et andet navn, hvis
+   det er en anden, der har telefonen.                                   */
+(function navneboks() {
+  const boks = document.getElementById("navneboks");
+  const felt = document.getElementById("navnefelt");
+  const knap = document.getElementById("navneknap");
+  felt.value = SPILHAL.spiller();
+  function luk() {
+    SPILHAL.saetSpiller(felt.value);
+    boks.hidden = true;
+    document.dispatchEvent(new CustomEvent("spilhal:klar"));
+  }
+  knap.addEventListener("click", luk);
+  felt.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); luk(); } });
+  boks.hidden = false;
+  setTimeout(() => { try { felt.focus(); felt.select(); } catch (e) { } }, 60);
+})();
+</script>
 <script>
 "use strict";
 
@@ -206,6 +308,11 @@ const lyd = {
   }
 };
 
+/* Navnet læses én gang og opdateres, når navneboksen lukkes — tegningen
+   skal ikke i localStorage 60 gange i sekundet. */
+let spillerNavn = SPILHAL.spiller();
+document.addEventListener("spilhal:klar", () => { spillerNavn = SPILHAL.spiller(); });
+
 /* ---------- spillets tilstand ---------- */
 const S = {
   bræt: new Int8Array(N * N),       // 0 = tom, ellers farvenummer
@@ -355,6 +462,8 @@ function tjekSlut() {
   S.slut = true;
   S.traek = null;
   if (S.point > S.bedste) { S.bedste = S.point; gemBedste(); }
+  // også når en anden spiller på samme telefon ikke slår husets rekord
+  SPILHAL.gem("klodsjagt", spillerNavn, S.point);
   gemSpil();
   lyd.slut();
 }
@@ -411,6 +520,7 @@ function laegBrik(plads, c, r) {
    skifter app. Både stilling og highscore gemmes derfor lokalt.          */
 function gemBedste() {
   try { localStorage.setItem(TUNE.gemNoegle + "-bedste", String(S.bedste)); } catch (e) { }
+  SPILHAL.gem("klodsjagt", spillerNavn, S.bedste);      // forsidens tavle
 }
 
 function gemSpil() {
@@ -520,7 +630,8 @@ function layout() {
   const kr = clamp(L.top * 0.21, 15, 24);
   L.knap = [
     { navn: "lyd", x: w - pad - kr, y: L.top * 0.5, r: kr },
-    { navn: "forfra", x: w - pad - kr * 3.2, y: L.top * 0.5, r: kr }
+    { navn: "forfra", x: w - pad - kr * 3.2, y: L.top * 0.5, r: kr },
+    { navn: "hjem", x: w - pad - kr * 5.4, y: L.top * 0.5, r: kr }
   ];
 }
 
@@ -683,21 +794,32 @@ function tegnHaand() {
 function tegnHUD() {
   const pad = L.pad, top = L.top;
 
-  tekst("BEDSTE", pad, top * 0.34, clamp(top * 0.16, 10, 15), "rgba(255,255,255,.45)", "left", 700);
-  tekst(String(S.bedste), pad, top * 0.62, clamp(top * 0.26, 16, 26), "#ffd43b", "left", 800);
+  /* Venstre kolonne: navn, "BEDSTE" og tallet. Alle tre skrumper, hvis de
+     ikke kan være der — en sekscifret rekord må ikke ramme pointtallet. */
+  const kr = L.knap[0].r;
+  const knapVenstre = L.knap[L.knap.length - 1].x - kr * 1.4;
+  const kolonneHoejre = pad + clamp(top * 0.26, 16, 26) * 3.8;
+  if (spillerNavn)
+    tekstIBredde(spillerNavn, pad, top * 0.14, knapVenstre - pad - 8,
+      clamp(top * 0.15, 10, 14), "rgba(255,255,255,.5)", 700, "left");
+  tekst("BEDSTE", pad, top * 0.40, clamp(top * 0.16, 10, 15), "rgba(255,255,255,.45)", "left", 700);
+  tekstIBredde(String(S.bedste), pad, top * 0.66, kolonneHoejre - pad - 8,
+    clamp(top * 0.26, 16, 26), "#ffd43b", 800, "left");
 
-  const midt = L.landskab ? L.braet.x + L.braet.side / 2 : L.w / 2;
-  tekst(String(S.point), midt, top * 0.52, clamp(top * 0.42, 26, 48), "#ffffff", "center", 800);
+  // pointtallet står mellem venstre kolonne og knapperne
+  const midt = L.landskab ? L.braet.x + L.braet.side / 2 : (kolonneHoejre + knapVenstre) / 2;
+  const plads = L.landskab ? L.w * 0.45 : Math.max(60, knapVenstre - kolonneHoejre - 10);
+  tekstIBredde(String(S.point), midt, top * 0.52, plads, clamp(top * 0.42, 26, 48), "#ffffff", 800);
 
   if (S.kombo > 1) {
     const g = "KOMBO x" + Math.min(S.kombo, TUNE.komboLoft);
-    const b = ctx.measureText(g).width;
-    ctx.save();
-    afrundet(midt - b * 0.42, top * 0.78, b * 0.84, top * 0.24, top * 0.12);
+    const str = clamp(top * 0.15, 10, 15);
+    ctx.font = '800 ' + Math.round(str) + 'px "Baloo 2", system-ui, -apple-system, "Segoe UI", sans-serif';
+    const b = ctx.measureText(g).width + str * 1.6;
+    afrundet(midt - b / 2, top * 0.78, b, top * 0.24, top * 0.12);
     ctx.fillStyle = "rgba(255,212,59,.18)";
     ctx.fill();
-    tekst(g, midt, top * 0.90, clamp(top * 0.15, 10, 15), "#ffd43b", "center", 800);
-    ctx.restore();
+    tekst(g, midt, top * 0.90, str, "#ffd43b", "center", 800);
   }
 
   for (const k of L.knap) {
@@ -716,8 +838,10 @@ function tegnHUD() {
         ctx.lineTo(k.x + k.r * 0.55, k.y - k.r * 0.55);
         ctx.stroke();
       }
-    } else {
+    } else if (k.navn === "forfra") {
       tekst("↺", k.x, k.y + k.r * 0.06, k.r * 1.3, "#ffffff", "center", 700);
+    } else {
+      tekst("⌂", k.x, k.y + k.r * 0.02, k.r * 1.35, "#ffffff", "center", 700);
     }
   }
 }
@@ -764,14 +888,14 @@ function tegnEffekter() {
 
 /* Tekst, der skrumper, til den kan være inden for bredden. Danske ord er
    lange, og boksen er smal på en telefon.                                */
-function tekstIBredde(streng, x, y, maks, stoerrelse, farve, vaegt) {
+function tekstIBredde(streng, x, y, maks, stoerrelse, farve, vaegt, align) {
   let s = stoerrelse;
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 14; i++) {
     ctx.font = (vaegt || 700) + " " + Math.round(s) + 'px "Baloo 2", system-ui, -apple-system, "Segoe UI", sans-serif';
-    if (ctx.measureText(streng).width <= maks || s < 10) break;
+    if (ctx.measureText(streng).width <= maks || s < 9) break;
     s *= 0.92;
   }
-  tekst(streng, x, y, s, farve, "center", vaegt);
+  tekst(streng, x, y, s, farve, align || "center", vaegt);
 }
 
 /* Knappen i slut- og forfra-boksen. Samme tal bruges både til at tegne
@@ -845,9 +969,9 @@ function tegn() {
     tegnBoks("Starte forfra?", ["Brættet ryddes", "Din rekord bliver stående"], true, ["Ja", "Nej"]);
   else if (S.slut)
     tegnBoks("Ingen plads mere", [
-      "Point: " + S.point,
+      (spillerNavn ? spillerNavn + ": " : "Point: ") + S.point,
       S.point >= S.bedste ? "Ny rekord!" : "Bedste: " + S.bedste
-    ], false, ["Spil igen"]);
+    ], true, ["Spil igen", "Hallen"]);
 }
 
 /* ---------- animationer ---------- */
@@ -934,11 +1058,12 @@ function ned(e) {
   const p = punkt(e);
 
   if (S.spurgtForfra || S.slut) {
-    const b = boksKnapper(S.spurgtForfra);
-    for (const k of b.knapper) {
+    // begge bokse har to knapper: den grønne til venstre, den grå til højre
+    for (const k of boksKnapper(true).knapper) {
       if (!iRekt(p, k)) continue;
-      if (k.navn === "nej") S.spurgtForfra = false;
-      else nytSpil();
+      if (k.navn === "ja") nytSpil();
+      else if (S.spurgtForfra) S.spurgtForfra = false;
+      else { gemSpil(); location.href = "../"; }
       return;
     }
     return;
@@ -947,7 +1072,8 @@ function ned(e) {
   for (const k of L.knap) {
     if (!iRundKnap(p, k)) continue;
     if (k.navn === "lyd") lyd.skift();
-    else S.spurgtForfra = true;
+    else if (k.navn === "forfra") S.spurgtForfra = true;
+    else { gemSpil(); location.href = "../"; }     // stillingen er gemt, så det er trygt at gå
     return;
   }
 

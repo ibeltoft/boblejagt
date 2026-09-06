@@ -48,6 +48,13 @@ sig selv, fordi touch-tilstanden blev slået til ved første berøring og aldrig
 fra igen — en urørt telefon ryddede bølge efter bølge på egen hånd, og det så ud, som
 om spillet sprang bølger over.
 
+Spillet starter med navneboksen fra spilhallen: navnet står allerede skrevet, så
+det er ét tryk at komme i gang. Scoren fra hver runde går til hallens tavle
+(`spilhal.tavle.boblejagt`), også når den ikke slår telefonens egen rekord —
+ellers ville en anden spillers runde forsvinde. Både menuen, slutskærmen og
+"drej din telefon"-skærmen har en vej tilbage til hallen; den sidste er
+nødvendig, fordi et spil på hjemmeskærmen ikke har nogen tilbage-knap.
+
 Holdes telefonen i portræt, pauser spillet og beder om at blive drejet — banen er
 16:10, og i portræt bliver den under en tredjedel af skærmen.
 
