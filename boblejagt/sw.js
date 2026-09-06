@@ -1,4 +1,4 @@
-/* Klodsjagt — service worker.
+/* Boblejagt — service worker.
    Formålet er ét: efter første besøg skal spillet kunne startes fra
    hjemmeskærmen uden internet. Alt indhold er statisk og ligger i én
    HTML-fil, så en simpel "cache først"-strategi er nok.
@@ -6,7 +6,7 @@
    Hæv VERSION når index.html ændres — så henter telefonen den nye version
    næste gang den er online, og smider den gamle cache ud. */
 
-const VERSION = "klodsjagt-v2";
+const VERSION = "boblejagt-v3";
 const FILER = [
   "./",
   "./index.html",

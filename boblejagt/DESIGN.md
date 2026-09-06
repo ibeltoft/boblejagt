@@ -48,8 +48,31 @@ sig selv, fordi touch-tilstanden blev slået til ved første berøring og aldrig
 fra igen — en urørt telefon ryddede bølge efter bølge på egen hånd, og det så ud, som
 om spillet sprang bølger over.
 
+Spillet starter med navneboksen fra spilhallen: navnet står allerede skrevet, så
+det er ét tryk at komme i gang. Scoren fra hver runde går til hallens tavle
+(`spilhal.tavle.boblejagt`), også når den ikke slår telefonens egen rekord —
+ellers ville en anden spillers runde forsvinde. Både menuen, slutskærmen og
+"drej din telefon"-skærmen har en vej tilbage til hallen; den sidste er
+nødvendig, fordi et spil på hjemmeskærmen ikke har nogen tilbage-knap.
+
 Holdes telefonen i portræt, pauser spillet og beder om at blive drejet — banen er
-16:10, og i portræt bliver den under en tredjedel af skærmen.
+16:10, og i portræt bliver den under en tredjedel af skærmen. Selve beskeden
+tegnes derimod på en bane, der har skærmens format: banen må gerne blive smallere
+end de 640, der er minimum under spil, når der alligevel ikke spilles. Ellers stod
+"drej din telefon" i et lille kort midt på en tom side — og netop dét fik spillet
+til at ligne en webside frem for en app. Af samme grund tegnes menuen ikke bagved:
+den er sat op til en bred bane og flød ud over kanterne.
+
+Banen går helt ud til skærmens kant, også i browseren. Den tidligere ramme med
+runde hjørner, skygge og 8 px luft var med vilje, dengang spillet blev åbnet som
+en side; ved siden af et spil startet fra hjemmeskærmen ser den forkert ud. Kun
+`env(safe-area-inset-*)` er tilbage, og den er nødvendig: i landskab ligger
+iPhonens hak inde over banen.
+
+Fuldskærmsknappen i menuen bruger `requestFullscreen` og vises kun, når den
+findes, og spillet ikke allerede kører fra hjemmeskærmen. På iPhone findes den
+ikke — Safari understøtter ikke fuldskærm på telefonen — og der er "Føj til
+hjemmeskærm" den rigtige vej.
 
 Våbenskift sker med et kort tryk i højre side, ikke ved at ramme HUD-knappen. På en
 iPhone i landskab er knappen kun 32×24 px på skærmen, og selv med forstørret trykfelt

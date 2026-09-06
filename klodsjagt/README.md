@@ -4,7 +4,7 @@ Blokpuslespil til telefonen i browseren. Du får tre brikker ad gangen og lægge
 dem på et 8×8-bræt. Fyldte rækker og kolonner forsvinder. Ingen tidspres, ingen
 faldende brikker — det slutter, når ingen af de tre brikker kan være der.
 
-**Spil det her: https://ibeltoft.github.io/boblejagt/klodsjagt/**
+**Spil det her: https://ibeltoft.github.io/spil/klodsjagt/**
 
 ## Sådan får du det på telefonen
 
@@ -21,10 +21,17 @@ faldende brikker — det slutter, når ingen af de tre brikker kan være der.
 | Læg | Slip, når skyggen står rigtigt | Slip museknappen |
 | Fortryd greb | Slip uden for brættet | Samme |
 | Start forfra | ↺ øverst til højre | ↺ eller R |
+| Tilbage til hallen | ⌂ øverst til højre | ⌂ |
 | Lyd til/fra | ♪ øverst til højre | ♪ eller M |
 
 Mens du holder en brik, lyser de striber op, der vil forsvinde, hvis du slipper.
 Brikker, der ikke kan være nogen steder, tegnes halvt gennemsigtige.
+
+## Spillernavn
+
+Ved start skriver du dit navn. Din bedste stilling lander på spilhallens tavle,
+så forsiden kan vise, hvem der fører. Navnet huskes, så næste gang er det ét tryk.
+⌂-knappen øverst fører tilbage til hallen — stillingen er gemt.
 
 ## Point
 

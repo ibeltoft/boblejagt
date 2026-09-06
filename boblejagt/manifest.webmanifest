@@ -1,12 +1,13 @@
 {
-  "name": "Spilhallen",
-  "short_name": "Spilhallen",
-  "description": "To spil i browseren: Boblejagt og Klodsjagt. Rekorderne står på forsiden.",
+  "name": "Boblejagt",
+  "short_name": "Boblejagt",
+  "description": "Pop slimklatterne, saml stjerner og find nye boblevåben.",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",
-  "background_color": "#0e1330",
-  "theme_color": "#0e1330",
+  "orientation": "landscape",
+  "background_color": "#0d1b3a",
+  "theme_color": "#0d1b3a",
   "lang": "da",
   "icons": [
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },

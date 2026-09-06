@@ -44,6 +44,12 @@ afvejning: rydde nu, eller holde plads fri til den store brik, der kommer.
 | Start forfra | ↺ øverst til højre | ↺ eller R |
 | Lyd til/fra | ♪ øverst til højre | ♪ eller M |
 
+Spillet starter med navneboksen fra spilhallen: navnet står allerede skrevet,
+så det er ét tryk at komme i gang — men det kan skiftes, hvis en anden har
+telefonen. Rekorden går til hallens tavle (`spilhal.tavle.klodsjagt`), både
+løbende og ved rundens slut, så den også fanger en spiller, der ikke slår
+husets rekord. ⌂-knappen fører tilbage til hallen; stillingen er gemt.
+
 Løftet på 1,5 felt er ikke kosmetik. Uden det dækker fingeren præcis det felt,
 man sigter efter, og på en 8×8-bane er et felt kun 45 px på en iPhone 12 —
 mindre end fingerspidsen. Med løftet ligger både brik og skygge over fingeren.
@@ -147,6 +153,7 @@ man trykker "spil igen".
 | `sw.js` | Service worker, så spillet virker uden internet efter første besøg. |
 | `manifest.webmanifest` | Gør spillet installerbart på hjemmeskærmen. |
 | `icon-*.png` | Ikon til hjemmeskærmen, tegnet med samme klodser som spillet. |
+| `README.md` | Kort spillervejledning. |
 | `DESIGN.md` | Dette dokument. |
 
 Alle balancetal står samlet i `TUNE` øverst i `index.html`.
