@@ -1,15 +1,12 @@
-/* Spilhallen — service worker for forsiden.
+/* Jitsujagt — service worker.
+   Formålet er ét: efter første besøg skal spillet kunne startes fra
+   hjemmeskærmen uden internet. Alt indhold er statisk og ligger i én
+   HTML-fil, så en simpel "cache først"-strategi er nok.
 
-   Den cacher kun forsidens egne filer. Hvert spil har sin egen service
-   worker i sin egen mappe, og den har et snævrere scope, så den vinder
-   for sine egne sider. Denne her holder fingrene fra alt, der ligger i
-   en undermappe — ellers ville hallen kunne servere en gammel udgave af
-   et spil, den tilfældigvis havde hentet én gang.
+   Hæv VERSION når index.html ændres — så henter telefonen den nye version
+   næste gang den er online, og smider den gamle cache ud. */
 
-   Hæv VERSION når forsiden ændres. Gamle caches ryddes ved aktivering,
-   også de tidligere "boblejagt-*"-caches fra dengang spillet lå i roden. */
-
-const VERSION = "spilhal-v2";
+const VERSION = "jitsujagt-v1";
 const FILER = [
   "./",
   "./index.html",
@@ -18,9 +15,6 @@ const FILER = [
   "./icon-192.png",
   "./icon-512.png"
 ];
-
-// scope-stien, fx "/boblejagt/" på GitHub Pages
-const ROD = new URL("./", self.registration.scope).pathname;
 
 self.addEventListener("install", e => {
   e.waitUntil(
@@ -39,16 +33,8 @@ self.addEventListener("activate", e => {
   );
 });
 
-function forsiden(url) {
-  if (url.origin !== self.location.origin) return false;
-  if (!url.pathname.startsWith(ROD)) return false;
-  // alt med en skråstreg tilbage hører til et spil — lad spillet om det
-  return !url.pathname.slice(ROD.length).includes("/");
-}
-
 self.addEventListener("fetch", e => {
   if (e.request.method !== "GET") return;
-  if (!forsiden(new URL(e.request.url))) return;
   e.respondWith(
     caches.match(e.request).then(fundet => {
       if (fundet) {
@@ -64,7 +50,7 @@ self.addEventListener("fetch", e => {
             caches.open(VERSION).then(c => c.put(e.request, svar.clone()));
           return svar;
         })
-        // helt offline og intet i cachen: send forsiden, så hallen altid åbner
+        // helt offline og intet i cachen: send startsiden, så appen altid åbner
         .catch(() => caches.match("./index.html"));
     })
   );

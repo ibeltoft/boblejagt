@@ -1,0 +1,1329 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Jitsujagt</title>
+<style>
+  html,body{margin:0;height:100%;background:#0b1026;overflow:hidden;
+    font-family:"Baloo 2",system-ui,-apple-system,"Segoe UI",Verdana,sans-serif;
+    -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;
+    touch-action:none;overscroll-behavior:none}
+  /* #wrap holder spillepladen fri af notch og hjemmeindikator */
+  #wrap{position:fixed;inset:0;
+    padding:env(safe-area-inset-top) env(safe-area-inset-right)
+            env(safe-area-inset-bottom) env(safe-area-inset-left);
+    box-sizing:border-box}
+  /* touch-action nedarves ikke — uden denne zoomer et dobbelttryk midt i spillet */
+  canvas{display:block;touch-action:none}
+</style>
+<div id="wrap"><canvas id="c"></canvas></div>
+<!-- ---------- spilhallens navneboks (samme markup i alle spil) ---------- -->
+<style>
+  #navneboks{position:fixed;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;
+    padding:24px;box-sizing:border-box;background:rgba(8,11,32,.86);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+  #navneboks[hidden]{display:none}
+  #navneboks .kort{width:100%;max-width:320px;box-sizing:border-box;padding:26px 22px 20px;
+    border-radius:24px;background:#1b2350;border:1px solid rgba(255,255,255,.12);
+    box-shadow:0 24px 70px rgba(0,0,0,.55);text-align:center;color:#fff}
+  #navneboks .mini{font-size:12px;letter-spacing:.16em;color:rgba(255,255,255,.42);font-weight:700}
+  #navneboks h1{margin:8px 0 18px;font-size:24px;font-weight:800}
+  /* 17px: under 16px zoomer iOS ind på feltet, og så sidder spillet skævt bagefter */
+  #navneboks input{width:100%;box-sizing:border-box;padding:13px 14px;margin:0 0 14px;
+    font-family:inherit;font-size:17px;font-weight:700;text-align:center;color:#fff;border:none;border-radius:14px;
+    background:rgba(255,255,255,.10);outline:2px solid transparent}
+  #navneboks input:focus{outline-color:#66d9e8}
+  #navneboks button{width:100%;padding:14px;border:none;border-radius:999px;background:#37b24d;
+    color:#fff;font-family:inherit;font-size:17px;font-weight:800;cursor:pointer}
+  #navneboks button:active{transform:translateY(1px)}
+  #navneboks a{display:inline-block;margin-top:14px;font-size:14px;color:rgba(255,255,255,.5);text-decoration:none}
+</style>
+<div id="navneboks" hidden>
+  <div class="kort">
+    <div class="mini">KONRAD'S SPILLEHAL</div>
+    <h1>Hvem træner?</h1>
+    <input id="navnefelt" type="text" maxlength="14" placeholder="Dit navn"
+           autocomplete="nickname" autocapitalize="words" spellcheck="false" enterkeyhint="go">
+    <button id="navneknap" type="button">Træn</button>
+    <a href="../">← Tilbage til spillehallen</a>
+  </div>
+</div>
+<script>
+"use strict";
+/* ============================================================
+   SPILHAL — fælles spillernavn og highscore-tavle
+   Nøglerne deles af alle spil på samme domæne, så forsiden kan vise
+   rekorderne. Kontrakten står i repoets README — den samme kode ligger
+   i hvert spil, så et spil stadig er én fil uden afhængigheder.
+   ============================================================ */
+const SPILHAL = {
+  NAVNE_NOEGLE: "spilhal.spiller",
+  MAKS: 10,
+  tavleNoegle(spil) { return "spilhal.tavle." + spil; },
+
+  // localStorage kan være blokeret (privat vindue, direkte filåbning) —
+  // spillet skal virke alligevel, bare uden at huske noget.
+  spiller() { try { return localStorage.getItem(this.NAVNE_NOEGLE) || ""; } catch (e) { return ""; } },
+
+  saetSpiller(navn) {
+    const rent = String(navn || "").replace(/\s+/g, " ").trim().slice(0, 14) || "Spiller";
+    try { localStorage.setItem(this.NAVNE_NOEGLE, rent); } catch (e) { }
+    return rent;
+  },
+
+  tavle(spil) {
+    try {
+      const raa = JSON.parse(localStorage.getItem(this.tavleNoegle(spil)) || "[]");
+      if (!Array.isArray(raa)) return [];
+      return raa.filter(r => r && typeof r.point === "number" && typeof r.navn === "string");
+    } catch (e) { return []; }
+  },
+
+  /* Én plads pr. navn — den bedste. Så kan et spil skrive løbende uden at
+     fylde tavlen med den samme spillers dårlige forsøg. Returnerer true,
+     hvis navnet nu ligger øverst.                                        */
+  gem(spil, navn, point) {
+    point = Math.round(point);
+    if (!(point > 0) || !navn) return false;
+    const liste = this.tavle(spil);
+    const dato = new Date().toISOString().slice(0, 10);
+    const i = liste.findIndex(r => r.navn === navn);
+    if (i >= 0) {
+      if (liste[i].point >= point) return false;
+      liste[i] = { navn, point, dato };
+    } else liste.push({ navn, point, dato });
+    liste.sort((a, b) => b.point - a.point);
+    if (liste.length > this.MAKS) liste.length = this.MAKS;
+    try { localStorage.setItem(this.tavleNoegle(spil), JSON.stringify(liste)); } catch (e) { }
+    return liste[0].navn === navn;
+  },
+
+  bedste(spil) { return this.tavle(spil)[0] || null; }
+};
+
+/* Navneboksen vises ved hver start med det huskede navn skrevet ind, så
+   man kan spille videre med ét tryk — eller skrive et andet navn, hvis
+   det er en anden, der har telefonen.                                   */
+(function navneboks() {
+  const boks = document.getElementById("navneboks");
+  const felt = document.getElementById("navnefelt");
+  const knap = document.getElementById("navneknap");
+  felt.value = SPILHAL.spiller();
+  function luk() {
+    SPILHAL.saetSpiller(felt.value);
+    boks.hidden = true;
+    document.dispatchEvent(new CustomEvent("spilhal:klar"));
+  }
+  knap.addEventListener("click", luk);
+  felt.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); luk(); } });
+  boks.hidden = false;
+  setTimeout(() => { try { felt.focus(); felt.select(); } catch (e) { } }, 60);
+})();
+</script>
+<script>
+"use strict";
+
+/* ============================================================
+   JITSUJAGT — smadr blokke, køb træning, klar worlds, tag rebirth
+   Man tapper blokken i stykker. Mynterne køber træning, bælter og
+   våben; en klaret world åbner den næste; en rebirth nulstiller alt
+   undtagen våben og giver en varig styrkebonus.
+   Alt tegnes med canvas, lyden laves med WebAudio. Ingen filer.
+   Balancetallene er fundet med en simulering — se DESIGN.md.
+   ============================================================ */
+
+/* ---------- knapper til balance, samlet ét sted ----------
+   Kurven hviler på én ligning: kraft koster 1,30x pr. niveau og giver
+   1,25x skade, så en world (2x HP) kræver 3,1 niveauer til 2,26x prisen.
+   Mynterne stiger kun 1,81x pr. world — de 1,25x, der mangler, er den
+   bløde mur, som en rebirth bryder igennem.                            */
+const TUNE = {
+  blokkePrWorld: 10,        // blokke i en ny world (en mestret world: 1)
+  hpGrund: 70, hpGange: 2.0,      // blok-HP i world w = 70 * 2^(w-1)
+  myntGrund: 4, myntGange: 1.81,  // mynter pr. blok = 4 * 1,81^(w-1)
+  worldBonus: 4,            // world-bonus = 4 x en bloks mynter
+
+  grundSkade: 3,            // skade pr. slag uden en eneste opgradering
+  kraftPris: 15, kraftPG: 1.30, kraftSkade: 1.25,          // ubegrænset
+  fartPris: 250, fartPG: 3.2, fartMaks: 8, fartTrin: 0.15, // slag pr. tryk
+  kritPris: 500, kritPG: 3.0, kritMaks: 10,
+  kritGrund: 0.05, kritTrin: 0.025, kritLoft: 0.35, kritSkade: 3,
+  senseiPris: 1000, senseiPG: 2.9, senseiMaks: 10, senseiTrin: 0.06,
+  baeltePris: 30, baeltePG: 1.81, baelteMynt: 0.15,
+  baelteWorlds: 12,         // kun de første 12 worlds kræver et bælte
+
+  komboLoft: 60, komboTrin: 0.015, komboVindue: 1.2,
+  ringTid: 0.9, perfektBand: 0.13, perfektSkade: 3, perfektKombo: 4,
+
+  rebirthSkade: 3,          // skade x3 for hver rebirth
+  /* Kravet stiger 7 worlds pr. rebirth. Det tal er ikke valgt: bonussen
+     x3 svarer til godt fem worlds, og muren tager resten. Ved 5 kollapser
+     løbene til et halvt minut, ved 8 vokser de til over 13.             */
+  rebirthGrund: 16, rebirthTrin: 7,
+
+  gemNoegle: "jitsujagt-v1",
+  spilId: "jitsujagt"
+};
+
+const canvas = document.getElementById("c");
+const wrap = document.getElementById("wrap");
+const ctx = canvas.getContext("2d");
+
+/* ---------- iOS: head-tags sættes programmatisk ----------
+   Bliver siden indlejret i en anden sides <body>, bliver <meta> i markup
+   ignoreret — og uden viewport-tagget tegner Safari siden 980 px bred og
+   skalerer ned, så alle tryk rammer forkert.                              */
+(function iosOpsaetning() {
+  const tags = {
+    "viewport": "width=device-width,initial-scale=1,maximum-scale=1," +
+                "user-scalable=no,viewport-fit=cover",
+    "apple-mobile-web-app-capable": "yes",
+    "apple-mobile-web-app-status-bar-style": "black-translucent",
+    "apple-mobile-web-app-title": "Jitsujagt",
+    "mobile-web-app-capable": "yes",
+    "theme-color": "#0b1026"
+  };
+  for (const navn in tags) {
+    let m = document.querySelector('meta[name="' + navn + '"]');
+    if (!m) { m = document.createElement("meta"); m.name = navn; document.head.appendChild(m); }
+    m.content = tags[navn];
+  }
+  const links = [
+    ["apple-touch-icon", "icon-180.png"],
+    ["icon", "icon-192.png"],
+    ["manifest", "manifest.webmanifest"]
+  ];
+  for (const [rel, href] of links) {
+    if (document.querySelector('link[rel="' + rel + '"]')) continue;
+    const l = document.createElement("link");
+    l.rel = rel; l.href = href;
+    document.head.appendChild(l);
+  }
+  // Service worker gør spillet spilbart uden internet efter første besøg.
+  // Kræver http(s) — springes over ved direkte filåbning, og en fejl her
+  // må aldrig stoppe spillet.
+  if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+    addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+  }
+})();
+
+/* ---------- små hjælpere ---------- */
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const rnd = (a, b) => a + Math.random() * (b - a);
+const nu = () => performance.now() / 1000;
+
+/* Afrundet rektangel. ctx.roundRect findes ikke i ældre Safari, så den
+   tegnes selv — spillet skal også køre på en nedarvet iPad.             */
+function afrundet(x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+/* Tallene bliver enorme. De skrives derfor kort: 12,4 mio i stedet for
+   12.400.000. Ud over "billiard" giver navnene ikke mening for nogen,
+   så der skiftes til 1,2e21.                                            */
+const ENHEDER = ["", " k", " mio", " mia", " bio", " billiard"];
+function tal(n) {
+  if (!isFinite(n)) return "∞";
+  if (n < 1000) return String(Math.floor(n));
+  let i = 0;
+  while (n >= 1000 && i < ENHEDER.length - 1) { n /= 1000; i++; }
+  if (n >= 1000) return (n / 1000).toExponential(1).replace(".", ",") + "e21";
+  const s = n < 10 ? n.toFixed(2) : n < 100 ? n.toFixed(1) : String(Math.floor(n));
+  return s.replace(".", ",").replace(/,0+$/, "") + ENHEDER[i];
+}
+
+/* ---------- worlds ----------
+   Tyve navne med hver sit farvepar. Efter den tyvende bliver rækken kørt
+   om igen med et rundetal, så stigen aldrig får en ende.                */
+const WORLDS = [
+  ["Havedojoen",     "#12204a", "#1d3a6e", "#7ee0ff"],
+  ["Bambuslunden",   "#12331f", "#1d5a33", "#9ae66e"],
+  ["Kirsebærbakken", "#3a1330", "#6e1f52", "#ff9ecd"],
+  ["Rismarken",      "#33300f", "#5e5719", "#ffe066"],
+  ["Tågebroen",      "#1a2430", "#334758", "#c5d6e0"],
+  ["Stenhaven",      "#241f1c", "#463b34", "#d9b48f"],
+  ["Vandfaldet",     "#0e2f3a", "#166173", "#66e0e6"],
+  ["Isdojoen",       "#132a44", "#1f5488", "#a5e8ff"],
+  ["Vulkanstien",    "#3a1206", "#7a2a0d", "#ff9052"],
+  ["Skyggeskoven",   "#160f26", "#2d1f4a", "#a892ff"],
+  ["Ørkentemplet",   "#3d2c0c", "#7a5a19", "#ffd07a"],
+  ["Tordenbjerget",  "#101a33", "#243a6b", "#8fb6ff"],
+  ["Sølvsøen",       "#1c2830", "#38505e", "#dbe9f0"],
+  ["Dragehulen",     "#2c0a14", "#5e162a", "#ff6b8a"],
+  ["Måneporten",     "#131539", "#262a6b", "#c9c6ff"],
+  ["Stjernetrappen", "#0c1030", "#1a205e", "#9ecbff"],
+  ["Krystalgrotten", "#0f2b33", "#1d5563", "#7ff0d8"],
+  ["Skyhavet",       "#1b2a4a", "#33518f", "#bcd8ff"],
+  ["Solpaladset",    "#402a06", "#8a5a0e", "#ffc94d"],
+  ["Tomrummet",      "#0a0a14", "#1c1c2e", "#e6e6ff"]
+];
+const ROMER = ["", "", " II", " III", " IV", " V", " VI", " VII", " VIII", " IX", " X"];
+function worldData(w) { return WORLDS[(w - 1) % WORLDS.length]; }
+function worldNavn(w) {
+  const runde = Math.floor((w - 1) / WORLDS.length) + 1;
+  return worldData(w)[0] + (ROMER[runde] || " ×" + runde);
+}
+
+/* ---------- bælter ----------
+   Rangen i dette liv. Bæltet giver flere mynter og er porten til de
+   første tolv worlds; derefter er man mester, og der er ingen porte.   */
+const BAELTER = [
+  ["Hvidt",    "#f1f3f5"], ["Gult",     "#ffd43b"], ["Orange",   "#ff922b"],
+  ["Grønt",    "#51cf66"], ["Blåt",     "#4dabf7"], ["Lilla",    "#b197fc"],
+  ["Brunt",    "#a1663a"], ["Rødt",     "#ff6b6b"], ["Sort",     "#343a40"],
+  ["Guld",     "#f0c419"], ["Diamant",  "#8ce8ff"], ["Regnbue",  "#ff8fd1"]
+];
+
+/* ---------- våben ----------
+   Det eneste, en rebirth ikke tager fra dig. Derfor er de dyre, og
+   derfor er de det, man sparer op til hen over flere liv.              */
+const VAABEN = [
+  { navn: "Næver",      gange: 1,   pris: 0,       tegn: "✊" },
+  { navn: "Træstav",    gange: 1.4, pris: 400,     tegn: "🥢" },
+  { navn: "Nunchaku",   gange: 2,   pris: 4000,    tegn: "🪃" },
+  { navn: "Katana",     gange: 2.8, pris: 45000,   tegn: "🗡" },
+  { navn: "Lynhandske", gange: 4,   pris: 500000,  tegn: "⚡" },
+  { navn: "Dragefist",  gange: 5.6, pris: 6000000, tegn: "🐉" }
+];
+
+/* ---------- lyd ----------
+   Alt er små toner fra WebAudio. Ingen filer at hente, og lyden må aldrig
+   kunne stoppe spillet — derfor er alt pakket ind i try.                 */
+const lyd = {
+  ac: null,
+  til: (function () { try { return localStorage.getItem(TUNE.gemNoegle + "-lyd") !== "fra"; } catch (e) { return true; } })(),
+  start() {
+    if (this.ac) { if (this.ac.state === "suspended") this.ac.resume(); return; }
+    try { this.ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { }
+  },
+  tone(frek, laengde, type, styrke, forsink) {
+    if (!this.til || !this.ac) return;
+    try {
+      const t = this.ac.currentTime + (forsink || 0);
+      const o = this.ac.createOscillator(), g = this.ac.createGain();
+      o.type = type || "sine";
+      o.frequency.setValueAtTime(frek, t);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(styrke || 0.16, t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + laengde);
+      o.connect(g); g.connect(this.ac.destination);
+      o.start(t); o.stop(t + laengde + 0.05);
+    } catch (e) { }
+  },
+  // slaget stiger i tonehøjde med komboen, så man kan høre den vokse
+  slag(kombo) { this.tone(180 + kombo * 4, 0.07, "square", 0.07); },
+  perfekt() { this.tone(880, 0.09, "triangle", 0.14); this.tone(1320, 0.09, "sine", 0.08, 0.05); },
+  knus() { this.tone(120, 0.18, "sawtooth", 0.12); this.tone(260, 0.12, "triangle", 0.09, 0.02); },
+  mynt() { this.tone(940, 0.07, "sine", 0.10); },
+  koeb() { this.tone(560, 0.09, "triangle", 0.14); this.tone(840, 0.10, "sine", 0.09, 0.05); },
+  world() { [523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.26, "triangle", 0.13, i * 0.07)); },
+  rebirth() { [392, 523, 659, 784, 1047, 1319].forEach((f, i) => this.tone(f, 0.4, "sine", 0.14, i * 0.10)); },
+  nej() { this.tone(150, 0.13, "sawtooth", 0.07); },
+  skift() {
+    this.til = !this.til;
+    try { localStorage.setItem(TUNE.gemNoegle + "-lyd", this.til ? "til" : "fra"); } catch (e) { }
+    if (this.til) this.tone(660, 0.1, "triangle", 0.14);
+  }
+};
+
+/* ---------- spillets tilstand ---------- */
+let spillerNavn = SPILHAL.spiller();
+
+const S = {
+  mynt: 0,
+  world: 1,          // hvor man står nu
+  mestret: 0,        // dybeste world, der nogensinde er klaret (overlever rebirth)
+  iLiv: 0,           // dybeste world klaret i dette liv (kravet til rebirth)
+  blok: 0,           // klarede blokke i denne world
+  kraft: 0, fart: 0, krit: 0, sensei: 0, baelte: 0,
+  vaaben: 0,         // overlever rebirth
+  rebirth: 0,
+  hp: 0, hpMaks: 0,
+  kombo: 0, komboUr: 0, ringUr: 0, slagRest: 0,
+  panel: null,       // null | "traening" | "vaaben" | "worlds" | "rebirth"
+  partikler: [], tal: [], ryst: 0, tid: 0,
+  slagT: 0,          // 0..1, ninjaens slaganimation
+  blink: 0,          // blokken lyser op lige efter et slag
+  besked: null,      // { tekst, under, ur, farve }
+  hintTaps: 0
+};
+
+/* ---------- udregninger ----------
+   Alle tal i spillet kommer herfra, så balancen kan læses ét sted.      */
+const blokHP     = w => TUNE.hpGrund * Math.pow(TUNE.hpGange, w - 1);
+const blokMynt   = w => TUNE.myntGrund * Math.pow(TUNE.myntGange, w - 1);
+const myntGange  = () => 1 + TUNE.baelteMynt * S.baelte;
+const grundSkade = () => TUNE.grundSkade * Math.pow(TUNE.kraftSkade, S.kraft)
+                       * VAABEN[S.vaaben].gange * Math.pow(TUNE.rebirthSkade, S.rebirth);
+const slagPrTap  = () => 1 + TUNE.fartTrin * S.fart;
+const kritChance = () => Math.min(TUNE.kritLoft, TUNE.kritGrund + TUNE.kritTrin * S.krit);
+const komboGange = () => 1 + TUNE.komboTrin * S.kombo;
+const senseiDPS  = () => grundSkade() * TUNE.senseiTrin * S.sensei;
+const magt       = () => S.rebirth * 1000 + S.mestret;
+const rebirthKrav = () => TUNE.rebirthGrund + TUNE.rebirthTrin * S.rebirth;
+const blokkeKraevet = () => S.world <= S.mestret ? 1 : TUNE.blokkePrWorld;
+
+/* Priser. Kraft er ubegrænset; resten har et loft, og så er prisen null. */
+function pris(hvad) {
+  switch (hvad) {
+    case "kraft":  return TUNE.kraftPris * Math.pow(TUNE.kraftPG, S.kraft);
+    case "fart":   return S.fart >= TUNE.fartMaks ? null : TUNE.fartPris * Math.pow(TUNE.fartPG, S.fart);
+    case "krit":   return S.krit >= TUNE.kritMaks ? null : TUNE.kritPris * Math.pow(TUNE.kritPG, S.krit);
+    case "sensei": return S.sensei >= TUNE.senseiMaks ? null : TUNE.senseiPris * Math.pow(TUNE.senseiPG, S.sensei);
+    case "baelte": return S.baelte >= BAELTER.length - 1 ? null : TUNE.baeltePris * Math.pow(TUNE.baeltePG, S.baelte);
+  }
+  return null;
+}
+
+/* Bæltet er porten til de første tolv worlds. En world, man allerede har
+   mestret, står altid åben — man har jo bevist det én gang.             */
+function maaIndIWorld(w) {
+  if (w <= S.mestret) return true;
+  if (w > TUNE.baelteWorlds) return true;
+  return S.baelte >= w - 1;
+}
+
+/* ---------- hukommelse ----------
+   Ét gem pr. spillernavn, så to søskende kan dele telefonen uden at
+   ødelægge hinandens fremskridt.                                        */
+function gemNoegle() { return TUNE.gemNoegle + "." + (spillerNavn || "Spiller"); }
+
+function gemSpil() {
+  try {
+    localStorage.setItem(gemNoegle(), JSON.stringify({
+      mynt: S.mynt, world: S.world, mestret: S.mestret, iLiv: S.iLiv, blok: S.blok,
+      kraft: S.kraft, fart: S.fart, krit: S.krit, sensei: S.sensei,
+      baelte: S.baelte, vaaben: S.vaaben, rebirth: S.rebirth, hp: S.hp
+    }));
+  } catch (e) { }
+  SPILHAL.gem(TUNE.spilId, spillerNavn, magt());
+}
+
+function hentSpil() {
+  let g = null;
+  try { g = JSON.parse(localStorage.getItem(gemNoegle()) || "null"); } catch (e) { }
+  const heltal = (v, d) => Number.isFinite(v) ? v : d;
+  if (!g) { nytLiv(true); return false; }
+  S.mynt = Math.max(0, heltal(g.mynt, 0));
+  S.rebirth = Math.max(0, Math.floor(heltal(g.rebirth, 0)));
+  S.mestret = Math.max(0, Math.floor(heltal(g.mestret, 0)));
+  S.iLiv = Math.max(0, Math.floor(heltal(g.iLiv, 0)));
+  S.world = clamp(Math.floor(heltal(g.world, 1)), 1, Math.max(1, S.mestret + 1));
+  S.kraft = Math.max(0, Math.floor(heltal(g.kraft, 0)));
+  S.fart = clamp(Math.floor(heltal(g.fart, 0)), 0, TUNE.fartMaks);
+  S.krit = clamp(Math.floor(heltal(g.krit, 0)), 0, TUNE.kritMaks);
+  S.sensei = clamp(Math.floor(heltal(g.sensei, 0)), 0, TUNE.senseiMaks);
+  S.baelte = clamp(Math.floor(heltal(g.baelte, 0)), 0, BAELTER.length - 1);
+  S.vaaben = clamp(Math.floor(heltal(g.vaaben, 0)), 0, VAABEN.length - 1);
+  S.blok = clamp(Math.floor(heltal(g.blok, 0)), 0, TUNE.blokkePrWorld - 1);
+  S.hpMaks = blokHP(S.world);
+  S.hp = clamp(heltal(g.hp, S.hpMaks), 1, S.hpMaks);
+  return true;
+}
+
+/* Et nyt liv: alt undtagen våben, rebirth-tal og mestrede worlds. */
+function nytLiv(heltNyt) {
+  S.mynt = 0; S.world = 1; S.iLiv = 0; S.blok = 0;
+  S.kraft = 0; S.fart = 0; S.krit = 0; S.sensei = 0; S.baelte = 0;
+  S.kombo = 0; S.komboUr = 0; S.slagRest = 0;
+  if (heltNyt) { S.mestret = 0; S.vaaben = 0; S.rebirth = 0; }
+  nyBlok();
+}
+
+function nyBlok() {
+  S.hpMaks = blokHP(S.world);
+  S.hp = S.hpMaks;
+}
+
+/* ---------- beskeder og effekter ---------- */
+function sig(tekst, under, farve) { S.besked = { tekst, under: under || "", ur: 2.4, farve: farve || "#ffd43b" }; }
+
+function flyvendeTal(x, y, tekst, farve, stor) {
+  S.tal.push({ x, y, tekst, farve, stor: stor || 1, ur: 0.7 });
+  if (S.tal.length > 10) S.tal.shift();
+}
+
+function skaarer(x, y, farve, antal) {
+  for (let i = 0; i < antal; i++) {
+    const v = rnd(0, Math.PI * 2), f = rnd(60, 340);
+    S.partikler.push({ x, y, vx: Math.cos(v) * f, vy: Math.sin(v) * f - 90,
+                       s: rnd(4, 12), farve, ur: rnd(0.4, 0.9), drej: rnd(-6, 6), v: 0 });
+  }
+  if (S.partikler.length > 200) S.partikler.splice(0, S.partikler.length - 200);
+}
+</script>
+<script>
+"use strict";
+
+/* ---------- at slå ----------
+   Ét tryk giver "slag pr. tryk" slag. Hvert slag ruller sin egen kritiske
+   terning, så hurtighed og kritisk ganger hinanden helt ærligt.          */
+function slaa() {
+  lyd.start();
+  const t = S.tid;
+  S.kombo = t - S.komboUr < TUNE.komboVindue ? Math.min(TUNE.komboLoft, S.kombo + 1) : 1;
+  S.komboUr = t;
+  S.hintTaps++;
+
+  // perfekt: ringen er inde i det gyldne bånd, lige inden den rammer blokken
+  const fase = (S.ringUr % TUNE.ringTid) / TUNE.ringTid;
+  const perfekt = fase >= 1 - TUNE.perfektBand;
+  if (perfekt) {
+    S.kombo = Math.min(TUNE.komboLoft, S.kombo + TUNE.perfektKombo);
+    S.ringUr = 0;                       // ringen starter forfra, så det kan gentages
+  }
+
+  // brøkdele af et slag gemmes til næste tryk, så 1,45 slag pr. tryk holder
+  S.slagRest += slagPrTap();
+  const antal = Math.max(1, Math.floor(S.slagRest));
+  S.slagRest -= antal;
+
+  let sum = 0, kritter = false;
+  for (let i = 0; i < antal; i++) {
+    const krit = Math.random() < kritChance();
+    if (krit) kritter = true;
+    sum += grundSkade() * komboGange() * (perfekt ? TUNE.perfektSkade : 1) * (krit ? TUNE.kritSkade : 1);
+  }
+
+  S.slagT = 1; S.blink = 1;
+  S.ryst = Math.min(10, S.ryst + (perfekt ? 5 : 2));
+  const bx = L.blok.x, by = L.blok.y;
+  flyvendeTal(bx + rnd(-L.blok.s * 0.62, L.blok.s * 0.62), by + rnd(-L.blok.s * 0.5, L.blok.s * 0.1),
+    (perfekt ? "★ " : "") + tal(sum), perfekt ? "#ffd43b" : kritter ? "#ff6b6b" : "#ffffff",
+    perfekt ? 1.35 : kritter ? 1.15 : 1);
+  skaarer(bx, by, worldData(S.world)[3], perfekt ? 10 : 4);
+  if (perfekt) lyd.perfekt(); else lyd.slag(S.kombo);
+
+  ramt(sum);
+}
+
+/* Skade på blokken — både fra fingeren og fra senseien. */
+function ramt(skade) {
+  S.hp -= skade;
+  if (S.hp <= 0) blokKnust();
+}
+
+function blokKnust() {
+  const faaet = blokMynt(S.world) * myntGange();
+  S.mynt += faaet;
+  lyd.knus();
+  S.ryst = 12;
+  skaarer(L.blok.x, L.blok.y, worldData(S.world)[3], 22);
+  flyvendeTal(L.blok.x, L.blok.y - L.blok.s * 0.55, "+" + tal(faaet), "#ffd43b", 1.2);
+
+  S.blok++;
+  if (S.blok >= blokkeKraevet()) worldKlaret();
+  nyBlok();
+  gemSpil();
+}
+
+function worldKlaret() {
+  /* World-bonussen udbetales én gang pr. world pr. liv. Uden den regel er
+     det bedste træk at blive stående i en mestret world: den klares på én
+     blok, og bonussen ville så komme for hver eneste blok.               */
+  const foersteGangILiv = S.world > S.iLiv;
+  const bonus = foersteGangILiv ? blokMynt(S.world) * myntGange() * TUNE.worldBonus : 0;
+  S.mynt += bonus;
+  S.blok = 0;
+  if (foersteGangILiv) S.iLiv = S.world;
+  if (S.world > S.mestret) S.mestret = S.world;
+  lyd.world();
+
+  const overskrift = bonus > 0 ? "WORLD KLARET  +" + tal(bonus) : "WORLD KLARET";
+  if (maaIndIWorld(S.world + 1)) {
+    S.world++;
+    sig(overskrift, "Videre til " + worldNavn(S.world), "#51cf66");
+  } else {
+    // porten står lukket: næste bælte mangler
+    sig(overskrift,
+      "Køb " + BAELTER[S.baelte + 1][0].toLowerCase() + " bælte for at komme videre", "#ffd43b");
+  }
+  gemSpil();
+}
+
+/* ---------- butikken ---------- */
+function koeb(hvad) {
+  const p = pris(hvad);
+  if (p === null) { lyd.nej(); return; }
+  if (S.mynt < p) { lyd.nej(); sig("Ikke mynter nok", "Der mangler " + tal(p - S.mynt), "#ff6b6b"); return; }
+  S.mynt -= p;
+  S[hvad]++;
+  lyd.koeb();
+  if (hvad === "baelte") {
+    sig(BAELTER[S.baelte][0] + " bælte!", "+" + Math.round(TUNE.baelteMynt * 100) + " % mynter", BAELTER[S.baelte][1]);
+    // porten var måske det eneste, der stod i vejen
+    if (S.blok === 0 && maaIndIWorld(S.world + 1) && S.world <= S.mestret) S.world++;
+  }
+  gemSpil();
+}
+
+function koebVaaben(i) {
+  if (i !== S.vaaben + 1 || i >= VAABEN.length) { lyd.nej(); return; }
+  const v = VAABEN[i];
+  if (S.mynt < v.pris) { lyd.nej(); sig("Ikke mynter nok", "Der mangler " + tal(v.pris - S.mynt), "#ff6b6b"); return; }
+  S.mynt -= v.pris;
+  S.vaaben = i;
+  lyd.koeb();
+  sig(v.navn + "!", "Skade ×" + String(v.gange).replace(".", ","), "#8ce8ff");
+  gemSpil();
+}
+
+function rejsTil(w) {
+  if (w < 1 || w > S.mestret + 1 || !maaIndIWorld(w)) { lyd.nej(); return; }
+  S.world = w; S.blok = 0; nyBlok();
+  S.panel = null;
+  sig(worldNavn(w), S.world <= S.mestret ? "Mestret — én blok" : "Ny world — " + TUNE.blokkePrWorld + " blokke", worldData(w)[3]);
+  gemSpil();
+}
+
+function tagRebirth() {
+  if (S.iLiv < rebirthKrav()) { lyd.nej(); return; }
+  S.rebirth++;
+  nytLiv(false);
+  S.panel = null;
+  lyd.rebirth();
+  sig("REBIRTH " + S.rebirth, "Skade ×" + tal(Math.pow(TUNE.rebirthSkade, S.rebirth)) + " for altid", "#b197fc");
+  gemSpil();
+}
+
+/* ---------- plads på skærmen ---------- */
+const L = { w: 0, h: 0, top: 0, bund: 0, blok: { x: 0, y: 0, s: 0 },
+            dojo: { x: 0, y: 0, w: 0, h: 0 }, knap: [], faner: [], rader: [], luk: null };
+
+function layout() {
+  const cs = getComputedStyle(wrap);
+  const w = Math.max(200, wrap.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight));
+  const h = Math.max(320, wrap.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom));
+  const dpr = Math.min(devicePixelRatio || 1, 2.5);
+  canvas.style.width = w + "px";
+  canvas.style.height = h + "px";
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  L.w = w; L.h = h;
+  L.pad = clamp(Math.min(w, h) * 0.035, 8, 22);
+  L.top = clamp(h * 0.15, 84, 150);
+  L.bund = clamp(h * 0.11, 62, 96);
+  L.dojo = { x: 0, y: L.top, w: w, h: h - L.top - L.bund };
+
+  const s = Math.min(w * 0.34, L.dojo.h * 0.28);
+  L.blok.s = s;
+  L.blok.x = w / 2;
+  L.blok.y = L.dojo.y + L.dojo.h * 0.38;
+  L.gulv = L.dojo.y + L.dojo.h * 0.74;      // gulvlinjen — ét tal, tre steder
+  // ringen må aldrig være bredere end skærmen — så kan man ikke se båndet
+  L.ringMaks = Math.min(s * 1.22, w * 0.44);
+  // jitsuen skal stå helt inde på skærmen, pandebåndets ender med
+  L.ninjaH = s * 1.00;
+  L.ninjaX = Math.max(w * 0.17, L.blok.x - s * 1.15);
+
+  // knapper i øverste højre hjørne
+  const kr = clamp(L.top * 0.16, 14, 21);
+  L.knap = [
+    { navn: "lyd", x: w - L.pad - kr, y: L.pad + kr * 0.9, r: kr },
+    { navn: "hjem", x: w - L.pad - kr * 3.2, y: L.pad + kr * 0.9, r: kr }
+  ];
+
+  // fanerne i bunden
+  const fn = ["traening", "vaaben", "worlds", "rebirth"];
+  const fw = (w - L.pad * 2) / fn.length;
+  L.faner = fn.map((navn, i) => ({
+    navn, x: L.pad + i * fw, y: h - L.bund + L.pad * 0.25,
+    w: fw - 4, h: L.bund - L.pad * 0.7
+  }));
+}
+
+addEventListener("resize", layout);
+addEventListener("orientationchange", () => setTimeout(layout, 120));
+if (window.visualViewport) visualViewport.addEventListener("resize", layout);
+</script>
+<script>
+"use strict";
+
+/* ---------- tegning: byggeklodser ---------- */
+function skrift(str, vaegt) {
+  return (vaegt || 700) + " " + Math.round(str) + 'px "Baloo 2", system-ui, -apple-system, "Segoe UI", sans-serif';
+}
+function tekst(streng, x, y, str, farve, align, vaegt) {
+  ctx.fillStyle = farve;
+  ctx.textAlign = align || "center";
+  ctx.textBaseline = "middle";
+  ctx.font = skrift(str, vaegt);
+  ctx.fillText(streng, x, y);
+}
+/* Tallene i spillet kan blive lange. Teksten skrumper hellere end at
+   løbe ud over sit felt.                                               */
+function tekstIBredde(streng, x, y, maks, str, farve, vaegt, align) {
+  ctx.font = skrift(str, vaegt);
+  let b = ctx.measureText(streng).width;
+  if (b > maks && b > 0) str = Math.max(8, str * maks / b);
+  tekst(streng, x, y, str, farve, align, vaegt);
+}
+
+/* ---------- baggrund ----------
+   Hver world har sit farvepar. Bjergene og månen er tegnet af cirkler og
+   trekanter, så der ikke skal hentes en eneste fil.                     */
+function tegnBaggrund() {
+  // d = [navn, mørk, lys, accent] — kun de tre sidste er farver
+  const d = worldData(S.world);
+  const g = ctx.createLinearGradient(0, 0, 0, L.h);
+  g.addColorStop(0, d[2]);
+  g.addColorStop(0.62, d[1]);
+  g.addColorStop(1, "#080b1c");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, L.w, L.h);
+
+  const gulv = L.gulv;
+
+  // måne
+  ctx.globalAlpha = 0.16;
+  ctx.fillStyle = d[3];
+  ctx.beginPath();
+  ctx.arc(L.w * 0.78, L.dojo.y + L.dojo.h * 0.18, Math.min(L.w, L.h) * 0.10, 0, Math.PI * 2);
+  ctx.fill();
+
+  // bjerge — samme silhuet hver gang, mørkere end himlen bag dem
+  ctx.globalAlpha = 0.34;
+  ctx.fillStyle = "#080b1c";
+  ctx.beginPath();
+  ctx.moveTo(-L.w * 0.1, gulv);
+  const toppe = [[0.10, 0.30], [0.32, 0.16], [0.55, 0.34], [0.78, 0.20], [1.02, 0.32]];
+  for (const [tx, th] of toppe) {
+    ctx.lineTo(L.w * tx, gulv - L.dojo.h * th);
+    ctx.lineTo(L.w * (tx + 0.13), gulv);
+  }
+  ctx.lineTo(L.w * 1.1, gulv);
+  ctx.closePath();
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // gulvet
+  const gg = ctx.createLinearGradient(0, gulv, 0, L.h);
+  gg.addColorStop(0, "rgba(255,255,255,.07)");
+  gg.addColorStop(1, "rgba(0,0,0,.28)");
+  ctx.fillStyle = gg;
+  ctx.fillRect(0, gulv, L.w, L.h - gulv);
+  ctx.strokeStyle = "rgba(255,255,255,.14)";
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, gulv); ctx.lineTo(L.w, gulv); ctx.stroke();
+  return gulv;
+}
+
+/* ---------- jitsuen ----------
+   En lille figur af cirkler og afrundede kasser. Armen skyder frem, når
+   slagT går mod 1, og bæltet har spillerens bæltefarve.                 */
+function tegnNinja(x, gulv, hoejde, slagT, spejl, blegn) {
+  const s = hoejde;
+  const dragt = blegn ? "#39406e" : "#232b58";
+  const trim = blegn ? "#4d548a" : "#39406e";
+  const bf = BAELTER[S.baelte][1];
+  ctx.save();
+  ctx.translate(x, gulv);
+  if (spejl) ctx.scale(-1, 1);
+  if (blegn) ctx.globalAlpha = 0.75;
+
+  // ben
+  ctx.fillStyle = dragt;
+  afrundet(-s * 0.15, -s * 0.34, s * 0.12, s * 0.34, s * 0.05); ctx.fill();
+  afrundet(s * 0.03, -s * 0.34, s * 0.12, s * 0.34, s * 0.05); ctx.fill();
+
+  // krop
+  afrundet(-s * 0.17, -s * 0.70, s * 0.34, s * 0.40, s * 0.10); ctx.fill();
+  ctx.fillStyle = trim;
+  afrundet(-s * 0.17, -s * 0.70, s * 0.34, s * 0.10, s * 0.08); ctx.fill();
+
+  // bælte
+  ctx.fillStyle = bf;
+  afrundet(-s * 0.20, -s * 0.46, s * 0.40, s * 0.08, s * 0.03); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(s * 0.16, -s * 0.44);
+  ctx.lineTo(s * 0.30, -s * 0.30);
+  ctx.lineTo(s * 0.24, -s * 0.28);
+  ctx.closePath(); ctx.fill();
+
+  // bagerste arm
+  ctx.fillStyle = dragt;
+  afrundet(-s * 0.28, -s * 0.64, s * 0.14, s * 0.24, s * 0.06); ctx.fill();
+
+  // slagarmen — den skyder frem mod blokken
+  const ud = s * (0.16 + 0.46 * slagT);
+  ctx.fillStyle = dragt;
+  afrundet(s * 0.08, -s * 0.62, ud, s * 0.13, s * 0.06); ctx.fill();
+  ctx.fillStyle = trim;
+  ctx.beginPath();
+  ctx.arc(s * 0.08 + ud, -s * 0.555, s * 0.10, 0, Math.PI * 2);
+  ctx.fill();
+
+  // hoved
+  ctx.fillStyle = "#f6d3b0";
+  ctx.beginPath(); ctx.arc(0, -s * 0.84, s * 0.16, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = dragt;                     // maske
+  afrundet(-s * 0.17, -s * 1.00, s * 0.34, s * 0.13, s * 0.05); ctx.fill();
+  afrundet(-s * 0.17, -s * 0.82, s * 0.34, s * 0.14, s * 0.05); ctx.fill();
+  ctx.fillStyle = "#ffffff";                 // øjne
+  ctx.beginPath(); ctx.arc(-s * 0.06, -s * 0.855, s * 0.030, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(s * 0.06, -s * 0.855, s * 0.030, 0, Math.PI * 2); ctx.fill();
+
+  // pandebånd, der blafrer
+  ctx.strokeStyle = bf;
+  ctx.lineWidth = Math.max(2, s * 0.045);
+  ctx.lineCap = "round";
+  const b = Math.sin(S.tid * 5) * s * 0.06;
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.16, -s * 0.94);
+  ctx.quadraticCurveTo(-s * 0.34, -s * 0.92 + b, -s * 0.42, -s * 0.78 + b);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.16, -s * 0.90);
+  ctx.quadraticCurveTo(-s * 0.32, -s * 0.84 - b, -s * 0.38, -s * 0.68 - b);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/* ---------- blokken ----------
+   Revnerne kommer, efterhånden som livet falder, så man kan se, hvor
+   langt man er, uden at læse tallet.                                    */
+function tegnBlok() {
+  const d = worldData(S.world);
+  const s = L.blok.s, x = L.blok.x, y = L.blok.y;
+  const del = clamp(S.hp / S.hpMaks, 0, 1);
+  const puls = 1 + S.blink * 0.06;
+  const hs = s * puls / 2;
+
+  // skygge på gulvet
+  ctx.globalAlpha = 0.28;
+  ctx.fillStyle = "#000";
+  ctx.beginPath();
+  ctx.ellipse(x, L.gulv, s * 0.42, s * 0.09, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  const g = ctx.createLinearGradient(x - hs, y - hs, x + hs, y + hs);
+  g.addColorStop(0, d[3]);
+  g.addColorStop(1, d[1]);
+  afrundet(x - hs, y - hs, hs * 2, hs * 2, s * 0.16);
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255," + (0.25 + S.blink * 0.5) + ")";
+  ctx.lineWidth = Math.max(2, s * 0.03);
+  ctx.stroke();
+
+  // revner: op til seks, alle tegnet fra den samme faste liste
+  const revner = Math.floor((1 - del) * 6);
+  ctx.strokeStyle = "rgba(10,12,30,.55)";
+  ctx.lineWidth = Math.max(1.5, s * 0.022);
+  ctx.lineCap = "round";
+  const R = [[-.30,-.34,.06,.02,-.10,.30],[.30,-.30,.10,.04,.22,.34],
+             [-.34,.14,-.06,.20,.10,.06],[.24,.10,.02,-.06,-.20,-.10],
+             [-.10,-.36,-.16,-.06,-.30,.02],[.34,-.06,.14,.16,.28,.32]];
+  for (let i = 0; i < revner; i++) {
+    const r = R[i];
+    ctx.beginPath();
+    ctx.moveTo(x + r[0] * s, y + r[1] * s);
+    ctx.lineTo(x + r[2] * s, y + r[3] * s);
+    ctx.lineTo(x + r[4] * s, y + r[5] * s);
+    ctx.stroke();
+  }
+
+  // timing-ringen og det gyldne bånd, man skal ramme
+  const fase = (S.ringUr % TUNE.ringTid) / TUNE.ringTid;
+  const rBlok = s * 0.78;
+  const rNu = L.ringMaks - (L.ringMaks - rBlok) * fase;
+  const rBaand = rBlok + (L.ringMaks - rBlok) * TUNE.perfektBand;
+  ctx.strokeStyle = "rgba(255,212,59,.20)";
+  ctx.lineWidth = Math.max(3, (rBaand - rBlok));
+  ctx.beginPath();
+  ctx.arc(x, y, (rBlok + rBaand) / 2, 0, Math.PI * 2);
+  ctx.stroke();
+  const iBaand = fase >= 1 - TUNE.perfektBand;
+  ctx.strokeStyle = iBaand ? "#ffd43b" : "rgba(255,255,255,.55)";
+  ctx.lineWidth = Math.max(2, s * 0.035);
+  ctx.beginPath();
+  ctx.arc(x, y, rNu, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // livslinjen under blokken
+  const bb = s * 1.5, bh = Math.max(8, s * 0.10), by = y + s * 0.86;
+  afrundet(x - bb / 2, by, bb, bh, bh / 2);
+  ctx.fillStyle = "rgba(0,0,0,.42)";
+  ctx.fill();
+  if (del > 0) {
+    afrundet(x - bb / 2, by, Math.max(bh, bb * del), bh, bh / 2);
+    ctx.fillStyle = del > 0.5 ? "#51cf66" : del > 0.2 ? "#ffd43b" : "#ff6b6b";
+    ctx.fill();
+  }
+  tekstIBredde(tal(Math.max(0, S.hp)) + " / " + tal(S.hpMaks), x, by + bh + Math.max(9, s * 0.10),
+    bb, Math.max(10, s * 0.115), "rgba(255,255,255,.72)", 700);
+}
+
+/* ---------- kombo og fremdrift i worlden ---------- */
+function tegnKombo() {
+  const y = L.dojo.y + L.dojo.h - Math.max(30, L.dojo.h * 0.11);
+  const kraev = blokkeKraevet();
+  const b = Math.min(L.w * 0.7, 260);
+
+  // prikker for blokkene i denne world
+  const n = Math.min(kraev, 10);
+  const pr = clamp(b / (Math.max(n, 9) * 5), 3.5, 7);
+  for (let i = 0; i < n; i++) {
+    const px = L.w / 2 - (n - 1) * pr * 2.6 / 2 + i * pr * 2.6;
+    ctx.beginPath();
+    ctx.arc(px, y, pr, 0, Math.PI * 2);
+    ctx.fillStyle = i < S.blok ? "#51cf66" : "rgba(255,255,255,.22)";
+    ctx.fill();
+  }
+  const under = S.world <= S.mestret
+    ? "MESTRET · ÉN BLOK"
+    : "BLOK " + (S.blok + 1) + " AF " + kraev;
+  tekst(under, L.w / 2, y + pr * 3.4, clamp(L.dojo.h * 0.030, 10, 13), "rgba(255,255,255,.55)", "center", 700);
+
+  if (S.kombo > 1) {
+    const ky = y - Math.max(22, L.dojo.h * 0.075);
+    const del = S.kombo / TUNE.komboLoft;
+    const kb = Math.min(L.w * 0.62, 240), kh = Math.max(7, L.dojo.h * 0.020);
+    afrundet(L.w / 2 - kb / 2, ky, kb, kh, kh / 2);
+    ctx.fillStyle = "rgba(0,0,0,.34)"; ctx.fill();
+    afrundet(L.w / 2 - kb / 2, ky, Math.max(kh, kb * del), kh, kh / 2);
+    ctx.fillStyle = "#ffd43b"; ctx.fill();
+    tekst("KOMBO ×" + komboGange().toFixed(2).replace(".", ","), L.w / 2, ky - kh * 1.6,
+      clamp(L.dojo.h * 0.033, 11, 15), "#ffd43b", "center", 800);
+  }
+}
+</script>
+<script>
+"use strict";
+
+/* ---------- HUD ---------- */
+function tegnHUD() {
+  const pad = L.pad, kr = L.knap[0].r;
+  const knapVenstre = L.knap[L.knap.length - 1].x - kr * 1.6;
+
+  tekst("MYNTER", pad, pad + L.top * 0.13, clamp(L.top * 0.10, 9, 13), "rgba(255,255,255,.45)", "left", 700);
+  tekstIBredde(tal(S.mynt), pad, pad + L.top * 0.36, knapVenstre - pad - 10,
+    clamp(L.top * 0.25, 18, 30), "#ffd43b", 800, "left");
+
+  const y2 = L.top * 0.80;
+  // bæltet som en lille pille, og magten yderst til højre
+  const bn = BAELTER[S.baelte][0].toUpperCase() + " BÆLTE";
+  const bs = clamp(L.top * 0.105, 9, 13);
+  ctx.font = skrift(bs, 800);
+  const bb = ctx.measureText(bn).width + bs * 2.2;
+  afrundet(L.w - pad - bb, y2 - bs * 1.15, bb, bs * 2.3, bs * 1.15);
+  ctx.fillStyle = "rgba(255,255,255,.10)"; ctx.fill();
+  ctx.beginPath();
+  ctx.arc(L.w - pad - bb + bs * 0.95, y2, bs * 0.52, 0, Math.PI * 2);
+  ctx.fillStyle = BAELTER[S.baelte][1]; ctx.fill();
+  tekst(bn, L.w - pad - bs * 0.7, y2, bs, "#ffffff", "right", 800);
+
+  const venstreMaks = L.w - pad * 2 - bb - 12;
+  tekstIBredde(worldNavn(S.world), pad, y2 - bs * 0.6, venstreMaks, clamp(L.top * 0.135, 12, 17), "#ffffff", 800, "left");
+  const linje2 = "World " + S.world + (S.rebirth ? "  ·  rebirth " + S.rebirth : "") + "  ·  magt " + tal(magt());
+  tekstIBredde(linje2, pad, y2 + bs * 1.15, venstreMaks, clamp(L.top * 0.10, 9, 12), "rgba(255,255,255,.52)", 700, "left");
+
+  for (const k of L.knap) {
+    ctx.beginPath();
+    ctx.arc(k.x, k.y, k.r, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,255,255,.10)";
+    ctx.fill();
+    if (k.navn === "lyd") {
+      tekst("♪", k.x, k.y + k.r * 0.04, k.r * 1.25, lyd.til ? "#ffffff" : "rgba(255,255,255,.35)", "center", 700);
+      if (!lyd.til) {
+        ctx.strokeStyle = "rgba(255,255,255,.55)";
+        ctx.lineWidth = Math.max(1.5, k.r * 0.12);
+        ctx.beginPath();
+        ctx.moveTo(k.x - k.r * 0.55, k.y + k.r * 0.55);
+        ctx.lineTo(k.x + k.r * 0.55, k.y - k.r * 0.55);
+        ctx.stroke();
+      }
+    } else tekst("⌂", k.x, k.y + k.r * 0.02, k.r * 1.35, "#ffffff", "center", 700);
+  }
+}
+
+/* ---------- fanerne ----------
+   Den gule prik betyder "her er noget, du har råd til". Så behøver man
+   ikke åbne alle fire faner for at opdage det.                          */
+function noget(fane) {
+  if (fane === "traening")
+    return ["kraft", "fart", "krit", "sensei", "baelte"].some(h => { const p = pris(h); return p !== null && S.mynt >= p; });
+  if (fane === "vaaben")
+    return S.vaaben + 1 < VAABEN.length && S.mynt >= VAABEN[S.vaaben + 1].pris;
+  if (fane === "worlds") return S.mestret >= 1;
+  if (fane === "rebirth") return S.iLiv >= rebirthKrav();
+  return false;
+}
+
+function tegnFaner() {
+  const navne = { traening: "TRÆNING", vaaben: "VÅBEN", worlds: "WORLDS", rebirth: "REBIRTH" };
+  ctx.fillStyle = "rgba(8,11,32,.72)";
+  ctx.fillRect(0, L.h - L.bund, L.w, L.bund);
+  for (const f of L.faner) {
+    const aaben = S.panel === f.navn;
+    afrundet(f.x, f.y, f.w, f.h, 16);
+    ctx.fillStyle = aaben ? "rgba(255,255,255,.18)" : "rgba(255,255,255,.07)";
+    ctx.fill();
+    const str = clamp(f.w * 0.16, 9, 13);
+    tekstIBredde(navne[f.navn], f.x + f.w / 2, f.y + f.h / 2, f.w - 10, str,
+      aaben ? "#ffffff" : "rgba(255,255,255,.72)", 800);
+    if (noget(f.navn) && !aaben) {
+      ctx.beginPath();
+      ctx.arc(f.x + f.w - 12, f.y + 12, 4.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffd43b"; ctx.fill();
+    }
+  }
+}
+
+/* ---------- panelerne ----------
+   Alle fire paneler deler kort, overskrift, lukkeknap og rækker, så de
+   ser ens ud og kan trykkes ens.                                        */
+function panelKort(overskrift, under) {
+  ctx.fillStyle = "rgba(6,9,24,.86)";
+  ctx.fillRect(0, L.dojo.y, L.w, L.dojo.h);
+  const x = L.pad, y = L.dojo.y + 6, w = L.w - L.pad * 2, h = L.dojo.h - 12;
+  afrundet(x, y, w, h, 20);
+  ctx.fillStyle = "#141c44"; ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,.12)"; ctx.lineWidth = 1; ctx.stroke();
+
+  const os = clamp(h * 0.055, 14, 19);
+  tekst(overskrift, x + w / 2, y + os * 1.5, os, "#ffffff", "center", 800);
+  let indre = y + os * 2.7;
+  if (under) {
+    tekstIBredde(under, x + w / 2, indre, w - 30, clamp(h * 0.038, 10, 13), "rgba(255,255,255,.55)", 700);
+    indre += clamp(h * 0.05, 13, 18);
+  }
+  const lr = clamp(h * 0.045, 13, 17);
+  L.luk = { x: x + w - lr - 12, y: y + lr + 10, r: lr };
+  ctx.beginPath();
+  ctx.arc(L.luk.x, L.luk.y, lr, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(255,255,255,.10)"; ctx.fill();
+  tekst("✕", L.luk.x, L.luk.y + 1, lr * 1.05, "rgba(255,255,255,.8)", "center", 800);
+  return { x: x + 12, y: indre, w: w - 24, h: y + h - indre - 12 };
+}
+
+/* Én række: navn, forklaring og en knap med prisen. */
+function rad(k, i, antal, titel, under, knapTekst, tilstand, farve, handling) {
+  const luft = 6;
+  const rh = Math.min(96, (k.h - luft * (antal - 1)) / antal);
+  const ry = k.y + i * (rh + luft);
+  afrundet(k.x, ry, k.w, rh, 14);
+  ctx.fillStyle = "rgba(255,255,255,.06)"; ctx.fill();
+
+  const kb = Math.min(k.w * 0.40, 132), kh = rh - 16;
+  const kx = k.x + k.w - kb - 10, ky = ry + 8;
+  const ts = clamp(rh * 0.24, 12, 16);
+  tekstIBredde(titel, k.x + 12, ry + rh * 0.34, k.w - kb - 30, ts, farve || "#ffffff", 800, "left");
+  tekstIBredde(under, k.x + 12, ry + rh * 0.68, k.w - kb - 30, clamp(rh * 0.185, 9, 12),
+    "rgba(255,255,255,.55)", 700, "left");
+
+  const bagg = tilstand === "koeb" ? "#37b24d" : tilstand === "dyr" ? "rgba(255,255,255,.10)"
+             : tilstand === "ejet" ? "rgba(81,207,102,.18)" : "rgba(255,255,255,.06)";
+  afrundet(kx, ky, kb, kh, kh / 2);
+  ctx.fillStyle = bagg; ctx.fill();
+  const kf = tilstand === "koeb" ? "#ffffff" : tilstand === "dyr" ? "rgba(255,255,255,.55)"
+           : tilstand === "ejet" ? "#51cf66" : "rgba(255,255,255,.35)";
+  tekstIBredde(knapTekst, kx + kb / 2, ky + kh / 2, kb - 14, clamp(kh * 0.42, 11, 15), kf, 800);
+
+  if (handling && (tilstand === "koeb" || tilstand === "dyr" || tilstand === "rejs"))
+    L.rader.push({ x: kx - 8, y: ry, w: kb + 18, h: rh, handling });
+  return ry + rh;
+}
+
+function knapTilstand(p) { return p === null ? "laast" : S.mynt >= p ? "koeb" : "dyr"; }
+
+function panelTraening() {
+  const k = panelKort("TRÆNING", "Skade nu: " + tal(grundSkade() * komboGange()) + " pr. slag");
+  const p = h => pris(h);
+  const naeste = S.baelte + 1 < BAELTER.length ? BAELTER[S.baelte + 1][0] : null;
+  const raekker = [
+    ["kraft", "Kraft", "Niveau " + S.kraft + " · hvert niveau ×1,25 skade", p("kraft"), "#ff922b"],
+    ["fart", "Hurtighed", S.fart >= TUNE.fartMaks ? "Fuldt trænet · " + slagPrTap().toFixed(2).replace(".", ",") + " slag pr. tryk"
+      : slagPrTap().toFixed(2).replace(".", ",") + " slag pr. tryk · " + S.fart + "/" + TUNE.fartMaks, p("fart"), "#4dabf7"],
+    ["krit", "Kritisk", S.krit >= TUNE.kritMaks ? "Fuldt trænet · " + Math.round(kritChance() * 100) + " % for ×3"
+      : Math.round(kritChance() * 100) + " % chance for ×3 · " + S.krit + "/" + TUNE.kritMaks, p("krit"), "#ff6b6b"],
+    ["sensei", "Sensei", S.sensei === 0 ? "En sensei, der slår med, mens du spiller"
+      : tal(senseiDPS()) + " skade i sekundet · " + S.sensei + "/" + TUNE.senseiMaks, p("sensei"), "#b197fc"],
+    ["baelte", naeste ? naeste + " bælte" : "Regnbue bælte",
+      naeste ? "+" + Math.round(TUNE.baelteMynt * 100) + " % mynter" +
+        (S.baelte + 1 < TUNE.baelteWorlds ? " · åbner world " + (S.baelte + 2) : "")
+        : "Højeste rang — du er mester", p("baelte"), BAELTER[Math.min(S.baelte + 1, BAELTER.length - 1)][1]]
+  ];
+  raekker.forEach((r, i) =>
+    rad(k, i, raekker.length, r[1], r[2], r[3] === null ? "MAKS" : tal(r[3]),
+      knapTilstand(r[3]), r[4], { type: "koeb", hvad: r[0] }));
+}
+
+function panelVaaben() {
+  const k = panelKort("VÅBEN", "Våben følger med gennem en rebirth");
+  VAABEN.forEach((v, i) => {
+    const ejet = i <= S.vaaben;
+    const naeste = i === S.vaaben + 1;
+    rad(k, i, VAABEN.length, v.tegn + "  " + v.navn, "Skade ×" + String(v.gange).replace(".", ","),
+      ejet ? "EJET" : naeste ? tal(v.pris) : "LÅST",
+      ejet ? "ejet" : naeste ? knapTilstand(v.pris) : "laast",
+      ejet ? "#51cf66" : naeste ? "#ffffff" : "rgba(255,255,255,.45)",
+      naeste ? { type: "vaaben", i } : null);
+  });
+}
+
+function panelWorlds() {
+  const k = panelKort("WORLDS", S.mestret === 0 ? "Klar din første world for at åbne rejsen"
+    : "Mestret til og med world " + S.mestret + " — de klares på én blok");
+  const foerste = Math.max(1, S.mestret + 1 - 29);
+  const antal = S.mestret + 1 - foerste + 1;
+  const kol = 5;
+  const raek = Math.ceil(antal / kol);
+  const tw = (k.w - (kol - 1) * 6) / kol;
+  const th = Math.min(tw, (k.h - (raek - 1) * 6) / raek);
+  for (let i = 0; i < antal; i++) {
+    const w = foerste + i;
+    const tx = k.x + (i % kol) * (tw + 6);
+    const ty = k.y + Math.floor(i / kol) * (th + 6);
+    const aaben = maaIndIWorld(w);
+    const her = w === S.world;
+    afrundet(tx, ty, tw, th, 12);
+    ctx.fillStyle = her ? "rgba(255,212,59,.22)" : aaben ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.03)";
+    ctx.fill();
+    if (her) { ctx.strokeStyle = "#ffd43b"; ctx.lineWidth = 2; ctx.stroke(); }
+    ctx.beginPath();
+    ctx.arc(tx + tw / 2, ty + th * 0.32, Math.max(3, th * 0.10), 0, Math.PI * 2);
+    ctx.fillStyle = aaben ? worldData(w)[3] : "rgba(255,255,255,.20)";
+    ctx.fill();
+    tekstIBredde(aaben ? String(w) : "🔒", tx + tw / 2, ty + th * 0.68, tw - 8,
+      clamp(th * 0.30, 11, 17), aaben ? "#ffffff" : "rgba(255,255,255,.35)", 800);
+    if (aaben && !her) L.rader.push({ x: tx, y: ty, w: tw, h: th, handling: { type: "world", w } });
+  }
+}
+
+function panelRebirth() {
+  const kan = S.iLiv >= rebirthKrav();
+  const k = panelKort("REBIRTH " + (S.rebirth + 1),
+    "Start forfra som stærkere jitsu");
+  const rh = k.h;
+
+  const linjer = [
+    "Du mister:  mynter, træning og bælte",
+    "Du beholder:  våben, mestrede worlds",
+    "Du får:  skade ×" + TUNE.rebirthSkade + " oveni — for altid"
+  ];
+  const ls = clamp(rh * 0.055, 11, 15);
+  linjer.forEach((l, i) =>
+    tekstIBredde(l, k.x + 4, k.y + ls * (1.2 + i * 1.7), k.w - 8, ls, "rgba(255,255,255,.80)", 700, "left"));
+
+  // hvor langt er man
+  const by = k.y + ls * 6.6, bh = Math.max(12, rh * 0.055);
+  const del = clamp(S.iLiv / rebirthKrav(), 0, 1);
+  afrundet(k.x, by, k.w, bh, bh / 2);
+  ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.fill();
+  if (del > 0) {
+    afrundet(k.x, by, Math.max(bh, k.w * del), bh, bh / 2);
+    ctx.fillStyle = kan ? "#51cf66" : "#4dabf7"; ctx.fill();
+  }
+  tekstIBredde("World " + S.iLiv + " af " + rebirthKrav() + " i dette liv",
+    k.x + k.w / 2, by + bh * 2.1, k.w, clamp(rh * 0.05, 10, 13), "rgba(255,255,255,.62)", 700);
+
+  const kh = Math.max(44, rh * 0.16), ky = k.y + rh - kh;
+  afrundet(k.x, ky, k.w, kh, kh / 2);
+  ctx.fillStyle = kan ? "#7048e8" : "rgba(255,255,255,.08)"; ctx.fill();
+  tekstIBredde(kan ? "TAG REBIRTH " + (S.rebirth + 1) : "Klar world " + rebirthKrav() + " først",
+    k.x + k.w / 2, ky + kh / 2, k.w - 24, clamp(kh * 0.36, 13, 18),
+    kan ? "#ffffff" : "rgba(255,255,255,.45)", 800);
+  if (kan) L.rader.push({ x: k.x, y: ky, w: k.w, h: kh, handling: { type: "rebirth" } });
+}
+
+function tegnPanel() {
+  L.rader = [];
+  L.luk = null;
+  if (S.panel === "traening") panelTraening();
+  else if (S.panel === "vaaben") panelVaaben();
+  else if (S.panel === "worlds") panelWorlds();
+  else if (S.panel === "rebirth") panelRebirth();
+}
+</script>
+<script>
+"use strict";
+
+/* ---------- effekter ---------- */
+function tegnEffekter() {
+  for (const p of S.partikler) {
+    ctx.save();
+    ctx.globalAlpha = clamp(p.ur * 1.6, 0, 1);
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.v);
+    ctx.fillStyle = p.farve;
+    afrundet(-p.s / 2, -p.s / 2, p.s, p.s, p.s * 0.25);
+    ctx.fill();
+    ctx.restore();
+  }
+  for (const t of S.tal) {
+    ctx.save();
+    ctx.globalAlpha = clamp(t.ur * 1.4, 0, 1);
+    tekst(t.tekst, t.x, t.y - (0.7 - t.ur) * 52, clamp(L.blok.s * 0.16 * t.stor, 12, 30),
+      t.farve, "center", 800);
+    ctx.restore();
+  }
+}
+
+/* Beskeden fra en klaret world, et køb eller en rebirth. */
+function tegnBesked() {
+  if (!S.besked) return;
+  const b = S.besked;
+  const a = clamp(b.ur > 2.0 ? (2.4 - b.ur) * 5 : b.ur * 1.6, 0, 1);
+  const y = L.dojo.y + L.dojo.h * 0.10;
+  const s1 = clamp(L.w * 0.052, 15, 24), s2 = clamp(L.w * 0.034, 11, 15);
+  ctx.save();
+  ctx.globalAlpha = a;
+  const bh = b.under ? s1 * 1.5 + s2 * 1.9 : s1 * 2.0;
+  afrundet(L.pad, y - s1 * 1.0, L.w - L.pad * 2, bh, 16);
+  ctx.fillStyle = "rgba(8,11,32,.78)";
+  ctx.fill();
+  tekstIBredde(b.tekst, L.w / 2, y + s1 * 0.15, L.w - L.pad * 2 - 24, s1, b.farve, 800);
+  if (b.under) tekstIBredde(b.under, L.w / 2, y + s1 * 1.15, L.w - L.pad * 2 - 24, s2, "rgba(255,255,255,.72)", 700);
+  ctx.restore();
+}
+
+/* De første tryk: to linjer, der forsvinder, så snart man er i gang. */
+function tegnHint() {
+  if (S.hintTaps >= 8 || S.panel || S.besked) return;
+  const a = clamp((8 - S.hintTaps) / 4, 0, 1);
+  ctx.save();
+  ctx.globalAlpha = a;
+  const y = L.blok.y - L.blok.s * 1.25;
+  tekstIBredde("Tryk på blokken", L.w / 2, y, L.w * 0.8, clamp(L.w * 0.048, 14, 21), "#ffffff", 800);
+  tekstIBredde("Ram, når ringen er inde i det gule bånd", L.w / 2, y + clamp(L.w * 0.055, 17, 25),
+    L.w * 0.86, clamp(L.w * 0.033, 11, 15), "rgba(255,255,255,.62)", 700);
+  ctx.restore();
+}
+
+let senseiT = 0, senseiUr = 0, gemUr = 0;
+
+function tegn() {
+  const gulv = tegnBaggrund();
+  ctx.save();
+  if (S.ryst > 0.2) ctx.translate(rnd(-1, 1) * S.ryst * 0.5, rnd(-1, 1) * S.ryst * 0.5);
+  tegnNinja(L.ninjaX, gulv, L.ninjaH, S.slagT, false, false);
+  if (S.sensei > 0)
+    tegnNinja(L.w - L.ninjaX, gulv, L.ninjaH * 0.82, senseiT, true, true);
+  tegnBlok();
+  ctx.restore();
+  tegnKombo();
+  tegnEffekter();
+  tegnHint();
+  tegnHUD();
+  tegnFaner();
+  if (S.panel) tegnPanel(); else { L.rader = []; L.luk = null; }
+  tegnBesked();
+}
+
+function opdater(dt) {
+  S.tid += dt;
+  S.ringUr += dt;
+  S.slagT = Math.max(0, S.slagT - dt * 6);
+  S.blink = Math.max(0, S.blink - dt * 5);
+  S.ryst = Math.max(0, S.ryst - dt * 26);
+  if (S.kombo > 0 && S.tid - S.komboUr > TUNE.komboVindue) { S.kombo = 0; S.slagRest = 0; }
+
+  // senseien slår videre, mens spillet er åbent — men kun så længe
+  if (S.sensei > 0) {
+    senseiUr += dt;
+    if (senseiUr >= 1) { senseiUr = 0; senseiT = 1; }
+    senseiT = Math.max(0, senseiT - dt * 4);
+    ramt(senseiDPS() * dt);
+  }
+
+  for (let i = S.partikler.length - 1; i >= 0; i--) {
+    const p = S.partikler[i];
+    p.ur -= dt;
+    if (p.ur <= 0) { S.partikler.splice(i, 1); continue; }
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.vy += 900 * dt;
+    p.v += p.drej * dt;
+  }
+  for (let i = S.tal.length - 1; i >= 0; i--) {
+    S.tal[i].ur -= dt;
+    if (S.tal[i].ur <= 0) S.tal.splice(i, 1);
+  }
+  if (S.besked) { S.besked.ur -= dt; if (S.besked.ur <= 0) S.besked = null; }
+
+  gemUr += dt;
+  if (gemUr > 6) { gemUr = 0; gemSpil(); }
+}
+
+/* ---------- styring ----------
+   Ét sæt pointer-hændelser dækker både mus og finger. Hele dojoen er
+   trykfelt — man skal ikke ramme blokken præcist for at slå.            */
+function punkt(e) {
+  const r = canvas.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+function iRundKnap(p, k) { return Math.hypot(p.x - k.x, p.y - k.y) < k.r * 1.7; }
+function iRekt(p, r) { return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h; }
+
+function udfoer(h) {
+  if (!h) return;
+  if (h.type === "koeb") koeb(h.hvad);
+  else if (h.type === "vaaben") koebVaaben(h.i);
+  else if (h.type === "world") rejsTil(h.w);
+  else if (h.type === "rebirth") tagRebirth();
+}
+
+function ned(e) {
+  e.preventDefault();
+  lyd.start();
+  const p = punkt(e);
+
+  for (const k of L.knap) {
+    if (!iRundKnap(p, k)) continue;
+    if (k.navn === "lyd") lyd.skift();
+    else { gemSpil(); location.href = "../"; }
+    return;
+  }
+  for (const f of L.faner) {
+    if (!iRekt(p, f)) continue;
+    S.panel = S.panel === f.navn ? null : f.navn;
+    lyd.mynt();
+    return;
+  }
+  if (S.panel) {
+    if (L.luk && iRundKnap(p, L.luk)) { S.panel = null; return; }
+    for (const r of L.rader) if (iRekt(p, r)) { udfoer(r.handling); return; }
+    return;                                   // et tryk i panelet må ikke også slå
+  }
+  if (p.y > L.dojo.y && p.y < L.dojo.y + L.dojo.h) slaa();
+}
+
+canvas.addEventListener("pointerdown", ned);
+canvas.addEventListener("contextmenu", e => e.preventDefault());
+addEventListener("keydown", e => {
+  if (e.key === " " || e.key === "Enter") { e.preventDefault(); if (!S.panel) slaa(); }
+  else if (e.key === "m" || e.key === "M") lyd.skift();
+  else if (e.key === "Escape") S.panel = null;
+});
+
+/* ---------- i gang ---------- */
+layout();
+hentSpil();
+if (!S.hpMaks) nyBlok();
+
+document.addEventListener("spilhal:klar", () => {
+  spillerNavn = SPILHAL.spiller();
+  hentSpil();                                 // hver spiller har sit eget gem
+  S.panel = null;
+});
+addEventListener("visibilitychange", () => { if (document.hidden) gemSpil(); });
+addEventListener("pagehide", gemSpil);
+
+let sidst = nu();
+(function loop() {
+  const t = nu();
+  const dt = Math.min(0.05, t - sidst);
+  sidst = t;
+  opdater(dt);
+  tegn();
+  requestAnimationFrame(loop);
+})();
+</script>

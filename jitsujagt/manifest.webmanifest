@@ -1,12 +1,13 @@
 {
-  "name": "Konrad's spillehal",
-  "short_name": "Spillehal",
-  "description": "Tre spil i browseren: Boblejagt, Klodsjagt og Jitsujagt. Rekorderne står på forsiden.",
+  "name": "Jitsujagt",
+  "short_name": "Jitsujagt",
+  "description": "Smadr blokke, træn din jitsu, klar worlds og tag rebirth.",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",
-  "background_color": "#0e1330",
-  "theme_color": "#0e1330",
+  "orientation": "portrait",
+  "background_color": "#0b1026",
+  "theme_color": "#0b1026",
   "lang": "da",
   "icons": [
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
