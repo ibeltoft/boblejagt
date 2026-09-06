@@ -1,6 +1,6 @@
 {
-  "name": "Spilhallen",
-  "short_name": "Spilhallen",
+  "name": "Konrad's spillehal",
+  "short_name": "Spillehal",
   "description": "To spil i browseren: Boblejagt og Klodsjagt. Rekorderne står på forsiden.",
   "start_url": ".",
   "scope": ".",

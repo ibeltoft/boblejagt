@@ -4,12 +4,12 @@
 <meta name="theme-color" content="#0e1330">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Spilhallen">
+<meta name="apple-mobile-web-app-title" content="Konrad's spillehal">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="icon-192.png">
 <link rel="manifest" href="manifest.webmanifest">
-<title>Spilhallen</title>
+<title>Konrad's spillehal</title>
 <style>
   :root{
     --bag:#0e1330; --bag2:#141c46; --kort:#1b2350; --kant:rgba(255,255,255,.12);
@@ -26,7 +26,9 @@
   .midt{max-width:720px;margin:0 auto}
 
   header{text-align:center;margin-bottom:22px}
-  h1{margin:0;font-size:clamp(28px,8vw,40px);font-weight:800;letter-spacing:.02em}
+  .hilsen{margin:0 0 2px;font-size:clamp(13px,3.6vw,16px);font-weight:700;
+    letter-spacing:.18em;text-transform:uppercase;color:var(--svag)}
+  h1{margin:0;font-size:clamp(26px,7.4vw,40px);font-weight:800;letter-spacing:.01em;line-height:1.1}
   .under{margin:6px 0 0;color:var(--daemp);font-size:15px}
 
   /* spillerlinjen: hvem der spiller, og vejen til at skifte */
@@ -88,7 +90,7 @@
 </style>
 <div id="navneboks" hidden>
   <div class="kort">
-    <div class="mini">SPILHALLEN</div>
+    <div class="mini">KONRAD'S SPILLEHAL</div>
     <h2>Hvem spiller?</h2>
     <input id="navnefelt" type="text" maxlength="14" placeholder="Dit navn"
            autocomplete="nickname" autocapitalize="words" spellcheck="false" enterkeyhint="go">
@@ -98,7 +100,8 @@
 
 <div class="midt">
   <header>
-    <h1>SPILHALLEN</h1>
+    <p class="hilsen">Velkommen til</p>
+    <h1>Konrad's spillehal</h1>
     <p class="under">To spil i browseren. Ingen konto, ingen app-butik — de virker også uden internet.</p>
     <div class="spiller">
       <span class="navn">Spiller: <b id="hvem">—</b></span>
