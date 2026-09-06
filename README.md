@@ -30,6 +30,20 @@ virker i flytilstand. Intet login, ingen konto, ingen app-butik.
 7 våben, 5 fjendetyper, boss hver 5. bølge, 10 opgraderingskort. Sværhedsgraden er
 balanceret med en auto-spiller — median bølge 13, ca. 5 minutter pr. forsøg.
 
+## Andre spil i repoet
+
+### 🧩 Klodsjagt
+
+Blokpuslespil til telefonen: tre brikker ad gangen lægges på et 8×8-bræt, og
+fyldte rækker og kolonner forsvinder. Ingen tidspres, ingen faldende brikker —
+det slutter, når ingen af brikkerne kan være der. Egen PWA, eget ikon, virker
+også uden internet.
+
+**Spil det her: https://ibeltoft.github.io/boblejagt/klodsjagt/**
+
+Ligger i mappen `klodsjagt/` og deler intet med Boblejagt. Spildesign og
+balancetal står i `klodsjagt/DESIGN.md`.
+
 ## Filer
 
 | Fil | Rolle |
@@ -38,6 +52,7 @@ balanceret med en auto-spiller — median bølge 13, ca. 5 minutter pr. forsøg.
 | `sw.js` | Service worker, så spillet virker uden internet efter første besøg. |
 | `manifest.webmanifest` | Gør spillet installerbart på hjemmeskærmen. |
 | `DESIGN.md` | Spildesignet: mekanik, balancetal, målinger og idéer til næste version. |
+| `klodsjagt/` | Klodsjagt — selvstændigt spil med egne filer af samme slags. |
 
 Alt er tegnet med canvas og lyden er genereret med WebAudio, så der er ingen
 billed- eller lydfiler at holde styr på. Sværhedsgradens knapper står samlet i

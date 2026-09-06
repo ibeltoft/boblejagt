@@ -1,0 +1,1019 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Klodsjagt</title>
+<style>
+  html,body{margin:0;height:100%;background:#0e1330;overflow:hidden;
+    font-family:"Baloo 2",system-ui,-apple-system,"Segoe UI",Verdana,sans-serif;
+    -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;
+    touch-action:none;overscroll-behavior:none}
+  /* #wrap holder spillepladen fri af notch og hjemmeindikator */
+  #wrap{position:fixed;inset:0;
+    padding:env(safe-area-inset-top) env(safe-area-inset-right)
+            env(safe-area-inset-bottom) env(safe-area-inset-left);
+    box-sizing:border-box}
+  /* touch-action nedarves ikke — uden denne zoomer et dobbelttryk midt i spillet */
+  canvas{display:block;touch-action:none}
+</style>
+<div id="wrap"><canvas id="c"></canvas></div>
+<script>
+"use strict";
+
+/* ============================================================
+   KLODSJAGT — puslespil med klodser, striber og kombo
+   Læg tre brikker ad gangen på et 8x8-bræt. Fyldte rækker og
+   kolonner forsvinder. Slut når ingen af brikkerne kan være der.
+   Alt tegnes med canvas, lyden laves med WebAudio. Ingen filer.
+   ============================================================ */
+
+/* ---------- knapper til balance, samlet ét sted ---------- */
+const TUNE = {
+  felt: 8,              // brættets bredde og højde i felter
+  brikker: 3,           // brikker i bakken ad gangen
+  pointPrCelle: 1,      // point for hver celle man lægger
+  pointPrRyddet: 10,    // point pr. ryddet celle, ganget med antal striber
+  komboLoft: 8,         // højeste komboganger
+  fairForsoeg: 24,      // forsøg på at trække en bakke, mindst én brik kan bruges i
+  fairAlleTre: 10,      // af dem: forsøg på at finde en bakke, hvor alle tre kan bruges
+  gemNoegle: "klodsjagt-v1"
+};
+
+const N = TUNE.felt;
+const canvas = document.getElementById("c");
+const wrap = document.getElementById("wrap");
+const ctx = canvas.getContext("2d");
+
+/* ---------- iOS: head-tags sættes programmatisk ----------
+   Bliver siden indlejret i en anden sides <body>, bliver <meta> i markup
+   ignoreret — og uden viewport-tagget tegner Safari siden 980 px bred og
+   skalerer ned, så alle tryk rammer forkert.                              */
+(function iosOpsaetning() {
+  const tags = {
+    "viewport": "width=device-width,initial-scale=1,maximum-scale=1," +
+                "user-scalable=no,viewport-fit=cover",
+    "apple-mobile-web-app-capable": "yes",          // fuldskærm fra hjemmeskærmen
+    "apple-mobile-web-app-status-bar-style": "black-translucent",
+    "apple-mobile-web-app-title": "Klodsjagt",
+    "mobile-web-app-capable": "yes",
+    "theme-color": "#0e1330"
+  };
+  for (const navn in tags) {
+    let m = document.querySelector('meta[name="' + navn + '"]');
+    if (!m) { m = document.createElement("meta"); m.name = navn; document.head.appendChild(m); }
+    m.content = tags[navn];
+  }
+  const links = [
+    ["apple-touch-icon", "icon-180.png"],
+    ["icon", "icon-192.png"],
+    ["manifest", "manifest.webmanifest"]
+  ];
+  for (const [rel, href] of links) {
+    if (document.querySelector('link[rel="' + rel + '"]')) continue;
+    const l = document.createElement("link");
+    l.rel = rel; l.href = href;
+    document.head.appendChild(l);
+  }
+  // Service worker gør spillet spilbart uden internet efter første besøg.
+  // Kræver http(s) — springes over ved direkte filåbning, og en fejl her
+  // må aldrig stoppe spillet.
+  if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+    addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+  }
+})();
+
+/* ---------- små hjælpere ---------- */
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const rnd = (a, b) => a + Math.random() * (b - a);
+const rndInt = (a, b) => Math.floor(rnd(a, b + 1));
+const nu = () => performance.now() / 1000;
+
+/* Afrundet rektangel. ctx.roundRect findes ikke i ældre Safari, så den
+   tegnes selv — spillet skal også køre på en nedarvet iPad.             */
+function afrundet(x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+/* ---------- farver ---------- */
+const BAG = "#0e1330";
+const FARVER = [
+  null,
+  { top: "#ff8f8f", bund: "#e64b4b", kant: "#ffd0d0" },  // rød
+  { top: "#ffc078", bund: "#f08c1c", kant: "#ffe6c7" },  // orange
+  { top: "#ffe066", bund: "#e8bd0a", kant: "#fff4bd" },  // gul
+  { top: "#8ce99a", bund: "#37b24d", kant: "#d3f9d8" },  // grøn
+  { top: "#66d9e8", bund: "#1098ad", kant: "#c5f6fa" },  // tyrkis
+  { top: "#8fb6ff", bund: "#3b6fe0", kant: "#d0e0ff" },  // blå
+  { top: "#c5aaff", bund: "#7a4fe0", kant: "#e5daff" },  // lilla
+  { top: "#ffa8d8", bund: "#e64ba5", kant: "#ffd6ed" }   // pink
+];
+
+/* ---------- brikkerne ----------
+   Formerne skrives som små tegninger, så listen kan læses. Vægten er,
+   hvor ofte formen trækkes: små brikker er der flest af, fordi de er
+   dem, der redder et fyldt bræt.                                        */
+const FORMER = (function byg() {
+  const raa = [
+    [7.0, ["X"]],
+    [9.0, ["XX"]],            [9.0, ["X", "X"]],
+    [8.0, ["XXX"]],           [8.0, ["X", "X", "X"]],
+    [5.0, ["XXXX"]],          [5.0, ["X", "X", "X", "X"]],
+    [2.2, ["XXXXX"]],         [2.2, ["X", "X", "X", "X", "X"]],
+    [7.0, ["XX", "XX"]],
+    [3.0, ["XXX", "XXX"]],    [3.0, ["XX", "XX", "XX"]],
+    [1.6, ["XXX", "XXX", "XXX"]],
+    // hjørner på tre celler — de mest brugbare brikker i et hjørne
+    [5.0, ["XX", "X."]], [5.0, ["XX", ".X"]], [5.0, ["X.", "XX"]], [5.0, [".X", "XX"]],
+    // hjørner på fem celler
+    [2.6, ["XXX", "X..", "X.."]], [2.6, ["XXX", "..X", "..X"]],
+    [2.6, ["X..", "X..", "XXX"]], [2.6, ["..X", "..X", "XXX"]],
+    // T
+    [3.0, ["XXX", ".X."]], [3.0, [".X.", "XXX"]],
+    [3.0, ["X.", "XX", "X."]], [3.0, [".X", "XX", ".X"]],
+    // L på fire celler
+    [2.6, ["X..", "XXX"]], [2.6, ["..X", "XXX"]],
+    [2.6, ["XXX", "X.."]], [2.6, ["XXX", "..X"]],
+    [2.0, ["XX", "X.", "X."]], [2.0, ["XX", ".X", ".X"]],
+    [2.0, ["X.", "X.", "XX"]], [2.0, [".X", ".X", "XX"]],
+    // S og Z
+    [1.8, [".XX", "XX."]], [1.8, ["XX.", ".XX"]],
+    [1.8, ["X.", "XX", ".X"]], [1.8, [".X", "XX", "X."]],
+    // skrå brikker — svære, derfor sjældne
+    [1.4, ["X.", ".X"]], [1.4, [".X", "X."]],
+    [0.7, ["X..", ".X.", "..X"]], [0.7, ["..X", ".X.", "X.."]]
+  ];
+  return raa.map(([vaegt, tegning], i) => {
+    const celler = [];
+    tegning.forEach((raekke, y) => {
+      for (let x = 0; x < raekke.length; x++) if (raekke[x] !== ".") celler.push([x, y]);
+    });
+    return {
+      id: i,
+      vaegt,
+      celler,
+      b: Math.max(...tegning.map(r => r.length)),   // bredde i felter
+      h: tegning.length,                            // højde i felter
+      antal: celler.length
+    };
+  });
+})();
+
+/* ---------- lyd ----------
+   Alt er små toner fra WebAudio. Ingen filer at hente, og lyden må aldrig
+   kunne stoppe spillet — derfor er alt pakket ind i try.                 */
+const lyd = {
+  ac: null,
+  til: localStorage.getItem(TUNE.gemNoegle + "-lyd") !== "fra",
+  start() {
+    if (this.ac) { if (this.ac.state === "suspended") this.ac.resume(); return; }
+    try { this.ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { }
+  },
+  tone(frek, laengde, type, styrke, forsink) {
+    if (!this.til || !this.ac) return;
+    try {
+      const t = this.ac.currentTime + (forsink || 0);
+      const o = this.ac.createOscillator(), g = this.ac.createGain();
+      o.type = type || "sine";
+      o.frequency.setValueAtTime(frek, t);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(styrke || 0.18, t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + laengde);
+      o.connect(g); g.connect(this.ac.destination);
+      o.start(t); o.stop(t + laengde + 0.05);
+    } catch (e) { }
+  },
+  loeft() { this.tone(420, 0.08, "triangle", 0.10); },
+  laeg() { this.tone(300, 0.10, "triangle", 0.16); this.tone(450, 0.08, "sine", 0.09, 0.03); },
+  forkert() { this.tone(140, 0.14, "sawtooth", 0.08); },
+  stribe(kombo) {
+    const grund = 520 * Math.pow(1.06, Math.min(kombo, 8));
+    [0, 4, 7, 12].forEach((halvtone, i) =>
+      this.tone(grund * Math.pow(2, halvtone / 12), 0.22, "triangle", 0.14, i * 0.045));
+  },
+  slut() {
+    [440, 350, 280, 200].forEach((f, i) => this.tone(f, 0.3, "sine", 0.16, i * 0.13));
+  },
+  skift() {
+    this.til = !this.til;
+    localStorage.setItem(TUNE.gemNoegle + "-lyd", this.til ? "til" : "fra");
+    if (this.til) this.tone(660, 0.1, "triangle", 0.14);
+  }
+};
+
+/* ---------- spillets tilstand ---------- */
+const S = {
+  bræt: new Int8Array(N * N),       // 0 = tom, ellers farvenummer
+  bakke: [],                        // { form, farve, brugt, ind } eller null
+  point: 0,
+  bedste: 0,
+  kombo: 0,                         // stigende for hver placering, der rydder
+  sidsteKombo: 0,
+  slut: false,
+  spurgtForfra: false,              // "start forfra?"-boksen er fremme
+  traek: null,                      // brikken man holder i hånden
+  effekter: [],                     // ryddede celler under animation
+  partikler: [],
+  tal: [],                          // point, der flyver op
+  ryst: 0,
+  tid: 0
+};
+
+/* ---------- brættets regler ---------- */
+const idx = (c, r) => r * N + c;
+
+function kanLigge(braet, form, c, r) {
+  for (const [dx, dy] of form.celler) {
+    const x = c + dx, y = r + dy;
+    if (x < 0 || y < 0 || x >= N || y >= N) return false;
+    if (braet[idx(x, y)] !== 0) return false;
+  }
+  return true;
+}
+
+/* Findes der overhovedet en plads til formen? Bruges både til at afgøre,
+   om spillet er slut, og til at trække en rimelig bakke.                 */
+function harPlads(braet, form) {
+  for (let r = 0; r <= N - form.h; r++)
+    for (let c = 0; c <= N - form.b; c++)
+      if (kanLigge(braet, form, c, r)) return true;
+  return false;
+}
+
+/* Læg formen og ryd fyldte rækker og kolonner. Returnerer, hvad der skete,
+   så både point, lyd og animation kan bygge på det samme svar.           */
+function udfoer(braet, form, farve, c, r) {
+  for (const [dx, dy] of form.celler) braet[idx(c + dx, r + dy)] = farve;
+
+  const raekker = [], kolonner = [];
+  for (let y = 0; y < N; y++) {
+    let fuld = true;
+    for (let x = 0; x < N; x++) if (braet[idx(x, y)] === 0) { fuld = false; break; }
+    if (fuld) raekker.push(y);
+  }
+  for (let x = 0; x < N; x++) {
+    let fuld = true;
+    for (let y = 0; y < N; y++) if (braet[idx(x, y)] === 0) { fuld = false; break; }
+    if (fuld) kolonner.push(x);
+  }
+
+  const ryddede = [];
+  const set = new Set();
+  for (const y of raekker) for (let x = 0; x < N; x++) set.add(idx(x, y));
+  for (const x of kolonner) for (let y = 0; y < N; y++) set.add(idx(x, y));
+  for (const i of set) { ryddede.push({ i, farve: braet[i] }); braet[i] = 0; }
+
+  return { linjer: raekker.length + kolonner.length, ryddede, raekker, kolonner };
+}
+
+/* Hvor fyldt er brættet? Styrer, hvor store brikker der trækkes. */
+function fyldning(braet) {
+  let n = 0;
+  for (let i = 0; i < braet.length; i++) if (braet[i] !== 0) n++;
+  return n / braet.length;
+}
+
+function traekForm(fyldt) {
+  // Jo mere fyldt brættet er, jo sjældnere trækkes de store brikker.
+  let sum = 0;
+  const vaegte = FORMER.map(f => {
+    let v = f.vaegt;
+    if (f.antal >= 5) v *= Math.max(0.15, 1 - fyldt * 1.6);
+    if (f.antal >= 8) v *= Math.max(0.10, 1 - fyldt * 2.0);
+    sum += v;
+    return v;
+  });
+  let t = Math.random() * sum;
+  for (let i = 0; i < FORMER.length; i++) { t -= vaegte[i]; if (t <= 0) return FORMER[i]; }
+  return FORMER[0];
+}
+
+/* Kan alle tre brikker lægges efter hinanden i en eller anden rækkefølge?
+   Det er ikke et krav for at spille videre, men en bakke, der består
+   prøven, føles fair — og den findes næsten altid.                       */
+function alleKanBruges(braet, former) {
+  const kopi = Int8Array.from(braet);
+  const brugt = new Array(former.length).fill(false);
+
+  function proev(dybde) {
+    if (dybde === former.length) return true;
+    for (let i = 0; i < former.length; i++) {
+      if (brugt[i]) continue;
+      const f = former[i];
+      for (let r = 0; r <= N - f.h; r++) {
+        for (let c = 0; c <= N - f.b; c++) {
+          if (!kanLigge(kopi, f, c, r)) continue;
+          const foer = Int8Array.from(kopi);
+          udfoer(kopi, f, 1, c, r);
+          brugt[i] = true;
+          if (proev(dybde + 1)) return true;
+          brugt[i] = false;
+          kopi.set(foer);
+        }
+      }
+    }
+    return false;
+  }
+  return proev(0);
+}
+
+/* Ny bakke. Først forsøges en bakke, hvor alle tre kan bruges; ellers
+   tages den første, hvor mindst én kan lægges. Kun hvis heller ikke det
+   findes, er spillet slut.                                               */
+function fyldBakke() {
+  const fyldt = fyldning(S.bræt);
+  let noed = null;
+  for (let forsoeg = 0; forsoeg < TUNE.fairForsoeg; forsoeg++) {
+    const former = [];
+    for (let i = 0; i < TUNE.brikker; i++) former.push(traekForm(fyldt));
+    if (forsoeg < TUNE.fairAlleTre && alleKanBruges(S.bræt, former)) { saetBakke(former); return; }
+    if (!noed && former.some(f => harPlads(S.bræt, f))) noed = former;
+  }
+  if (noed) saetBakke(noed);
+  else saetBakke([traekForm(fyldt), traekForm(fyldt), traekForm(fyldt)]);
+}
+
+function saetBakke(former) {
+  S.bakke = former.map((form, i) => ({
+    form,
+    farve: rndInt(1, FARVER.length - 1),
+    ind: -0.08 * i          // lille forsinkelse, så brikkerne glider ind efter hinanden
+  }));
+}
+
+function bakkenTom() { return S.bakke.every(b => b === null); }
+
+function tjekSlut() {
+  const tilbage = S.bakke.filter(Boolean);
+  if (!tilbage.length) return;
+  if (tilbage.some(b => harPlads(S.bræt, b.form))) return;
+  S.slut = true;
+  S.traek = null;
+  if (S.point > S.bedste) { S.bedste = S.point; gemBedste(); }
+  gemSpil();
+  lyd.slut();
+}
+
+/* ---------- at lægge en brik ---------- */
+function laegBrik(plads, c, r) {
+  const brik = S.bakke[plads];
+  if (!brik || !kanLigge(S.bræt, brik.form, c, r)) return false;
+
+  const svar = udfoer(S.bræt, brik.form, brik.farve, c, r);
+  S.bakke[plads] = null;
+
+  let point = brik.form.antal * TUNE.pointPrCelle;
+
+  if (svar.linjer > 0) {
+    S.kombo++;
+    const ganger = Math.min(S.kombo, TUNE.komboLoft);
+    const stribe = svar.ryddede.length * TUNE.pointPrRyddet * svar.linjer * ganger;
+    point += stribe;
+    S.sidsteKombo = S.kombo;
+
+    // ryddede celler får en bølge udad fra brikken, man lige lagde
+    const midtX = c + brik.form.b / 2, midtY = r + brik.form.h / 2;
+    for (const celle of svar.ryddede) {
+      const cx = celle.i % N, cy = (celle.i / N) | 0;
+      const afstand = Math.hypot(cx + 0.5 - midtX, cy + 0.5 - midtY);
+      S.effekter.push({ i: celle.i, farve: celle.farve, t: 0, vent: afstand * 0.028 });
+    }
+    S.ryst = Math.min(1, 0.35 + svar.linjer * 0.22);
+    lyd.stribe(S.kombo);
+    if (navigator.vibrate) try { navigator.vibrate(svar.linjer > 1 ? [12, 30, 18] : 14); } catch (e) { }
+
+    S.tal.push({
+      tekst: "+" + stribe, celle: idx(c, r), t: 0,
+      stor: true, kombo: ganger > 1 ? "KOMBO x" + ganger : ""
+    });
+    if (S.tal.length > 3) S.tal.splice(0, S.tal.length - 3);   // tallene må ikke dække brættet
+  } else {
+    S.kombo = 0;
+    lyd.laeg();
+  }
+
+  S.point += point;
+  if (S.point > S.bedste) { S.bedste = S.point; gemBedste(); }
+
+  if (bakkenTom()) fyldBakke();
+  tjekSlut();
+  gemSpil();
+  return true;
+}
+
+/* ---------- hukommelse ----------
+   Spillet ligger på en telefon, hvor fanen bliver smidt ud, når man
+   skifter app. Både stilling og highscore gemmes derfor lokalt.          */
+function gemBedste() {
+  try { localStorage.setItem(TUNE.gemNoegle + "-bedste", String(S.bedste)); } catch (e) { }
+}
+
+function gemSpil() {
+  try {
+    localStorage.setItem(TUNE.gemNoegle, JSON.stringify({
+      braet: Array.from(S.bræt),
+      bakke: S.bakke.map(b => b && { f: b.form.id, farve: b.farve }),
+      point: S.point,
+      kombo: S.kombo,
+      slut: S.slut
+    }));
+  } catch (e) { }
+}
+
+function hentSpil() {
+  try { S.bedste = parseInt(localStorage.getItem(TUNE.gemNoegle + "-bedste") || "0", 10) || 0; } catch (e) { }
+  let gemt = null;
+  try { gemt = JSON.parse(localStorage.getItem(TUNE.gemNoegle) || "null"); } catch (e) { }
+  if (!gemt || !Array.isArray(gemt.braet) || gemt.braet.length !== N * N) return false;
+  S.bræt.set(gemt.braet);
+  S.bakke = (gemt.bakke || []).map(b => b && { form: FORMER[b.f], farve: b.farve, ind: 1 });
+  while (S.bakke.length < TUNE.brikker) S.bakke.push(null);
+  if (S.bakke.every(b => !b)) fyldBakke();
+  S.point = gemt.point || 0;
+  S.kombo = gemt.kombo || 0;
+  S.slut = !!gemt.slut;
+  return true;
+}
+
+function nytSpil() {
+  S.bræt.fill(0);
+  S.point = 0; S.kombo = 0; S.sidsteKombo = 0;
+  S.slut = false; S.spurgtForfra = false; S.traek = null;
+  S.effekter.length = 0; S.partikler.length = 0; S.tal.length = 0;
+  fyldBakke();
+  gemSpil();
+}
+
+/* ---------- plads på skærmen ----------
+   Der regnes i CSS-pixels: brættet er kvadratisk og så stort, som der er
+   plads til, og bakken ligger under det (eller ved siden i landskab).    */
+const L = { w: 0, h: 0, pad: 12, top: 0, braet: { x: 0, y: 0, celle: 0, side: 0 }, bakke: [], knap: [] };
+
+function layout() {
+  const cs = getComputedStyle(wrap);
+  const w = Math.max(200, wrap.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight));
+  const h = Math.max(320, wrap.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom));
+  const dpr = Math.min(devicePixelRatio || 1, 2.5);
+  canvas.style.width = w + "px";
+  canvas.style.height = h + "px";
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  L.w = w; L.h = h;
+  L.landskab = w > h * 1.25;
+  L.pad = clamp(Math.min(w, h) * 0.035, 8, 24);
+  L.top = L.landskab ? clamp(h * 0.15, 52, 96) : clamp(h * 0.17, 66, 158);
+
+  const pad = L.pad;
+  let side, bx, by, bakkeOmraade;
+
+  if (L.landskab) {
+    // brættet og bakken står side om side og fylder skærmen ud på midten
+    side = Math.min(h - L.top - pad * 2, w * 0.62);
+    const bakkeB = clamp(side * 0.44, 84, 240);
+    const samlet = side + pad * 1.6 + bakkeB;
+    bx = Math.max(pad, (w - samlet) / 2);
+    by = L.top + (h - L.top - pad - side) / 2;
+    bakkeOmraade = { x: bx + side + pad * 1.6, y: by, w: bakkeB, h: side, soejle: true };
+  } else {
+    // brættet midt i skærmen, bakken forankret nede ved tommelfingeren
+    const plads = h - L.top - pad * 2;
+    side = Math.min(w - pad * 2, plads / 1.36);
+    const luft = clamp(side * 0.07, 10, 30);
+    let bakkeH = side * 0.30;
+    let rest = plads - side - luft - bakkeH;
+    if (rest > 0) {
+      // er der plads til overs, bliver brikkerne i bakken større
+      const ekstra = Math.min(rest * 0.5, side * 0.16);
+      bakkeH += ekstra;
+      rest -= ekstra;
+    }
+    bx = (w - side) / 2;
+    by = L.top + pad + Math.max(0, rest * 0.42);
+    bakkeOmraade = { x: pad, y: by + side + luft + Math.max(0, rest * 0.20), w: w - pad * 2, h: bakkeH, soejle: false };
+  }
+
+  L.braet.side = side;
+  L.braet.celle = side / N;
+  L.braet.x = bx;
+  L.braet.y = by;
+
+  // tre lige store felter til brikkerne
+  L.bakke = [];
+  for (let i = 0; i < TUNE.brikker; i++) {
+    if (bakkeOmraade.soejle) {
+      const h1 = bakkeOmraade.h / TUNE.brikker;
+      L.bakke.push({ x: bakkeOmraade.x, y: bakkeOmraade.y + i * h1, w: bakkeOmraade.w, h: h1 });
+    } else {
+      const w1 = bakkeOmraade.w / TUNE.brikker;
+      L.bakke.push({ x: bakkeOmraade.x + i * w1, y: bakkeOmraade.y, w: w1, h: bakkeOmraade.h });
+    }
+  }
+
+  // knapper i øverste højre hjørne
+  const kr = clamp(L.top * 0.21, 15, 24);
+  L.knap = [
+    { navn: "lyd", x: w - pad - kr, y: L.top * 0.5, r: kr },
+    { navn: "forfra", x: w - pad - kr * 3.2, y: L.top * 0.5, r: kr }
+  ];
+}
+
+addEventListener("resize", layout);
+addEventListener("orientationchange", () => setTimeout(layout, 120));
+if (window.visualViewport) visualViewport.addEventListener("resize", layout);
+
+/* ---------- tegning ---------- */
+function tekst(streng, x, y, stoerrelse, farve, align, vaegt) {
+  ctx.fillStyle = farve;
+  ctx.textAlign = align || "center";
+  ctx.textBaseline = "middle";
+  ctx.font = (vaegt || 700) + " " + Math.round(stoerrelse) + 'px "Baloo 2", system-ui, -apple-system, "Segoe UI", sans-serif';
+  ctx.fillText(streng, x, y);
+}
+
+/* Én klods: bund, top og en lys kant. Klodsen tegnes lidt mindre end
+   feltet, så gitteret kan ses mellem klodserne.                          */
+function tegnKlods(x, y, s, farve, alfa, skala) {
+  const f = FARVER[farve] || FARVER[1];
+  const m = s * 0.06;                       // luft mellem klodserne
+  let bx = x + m, by = y + m, bs = s - m * 2;
+  if (skala && skala !== 1) {
+    const k = bs * (1 - skala) / 2;
+    bx += k; by += k; bs *= skala;
+  }
+  if (bs <= 0) return;
+  const r = bs * 0.24;
+  ctx.globalAlpha = alfa === undefined ? 1 : alfa;
+
+  afrundet(bx, by, bs, bs, r);
+  ctx.fillStyle = f.bund;
+  ctx.fill();
+
+  // toppen: en lysere flade, der giver klodsen højde
+  afrundet(bx + bs * 0.07, by + bs * 0.06, bs * 0.86, bs * 0.68, r * 0.8);
+  const g = ctx.createLinearGradient(0, by, 0, by + bs);
+  g.addColorStop(0, f.top);
+  g.addColorStop(1, f.bund);
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  // lille glans i øverste venstre hjørne
+  afrundet(bx + bs * 0.16, by + bs * 0.14, bs * 0.3, bs * 0.16, bs * 0.08);
+  ctx.fillStyle = f.kant;
+  ctx.globalAlpha = (alfa === undefined ? 1 : alfa) * 0.5;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+function cellePos(i) {
+  return { x: L.braet.x + (i % N) * L.braet.celle, y: L.braet.y + ((i / N) | 0) * L.braet.celle };
+}
+
+function tegnBraet() {
+  const { x, y, side, celle } = L.braet;
+
+  // brættets plade
+  afrundet(x - celle * 0.14, y - celle * 0.14, side + celle * 0.28, side + celle * 0.28, celle * 0.42);
+  ctx.fillStyle = "rgba(255,255,255,.05)";
+  ctx.fill();
+
+  // hvilke rækker og kolonner ville forsvinde, hvis brikken blev sluppet nu?
+  const varsel = varsling();
+
+  for (let r = 0; r < N; r++) {
+    for (let c = 0; c < N; c++) {
+      const cx = x + c * celle, cy = y + r * celle;
+      const vaerdi = S.bræt[idx(c, r)];
+      if (vaerdi === 0) {
+        const m = celle * 0.06;
+        afrundet(cx + m, cy + m, celle - m * 2, celle - m * 2, celle * 0.22);
+        ctx.fillStyle = (varsel.raekker.has(r) || varsel.kolonner.has(c))
+          ? "rgba(255,255,255,.20)" : "rgba(255,255,255,.055)";
+        ctx.fill();
+      } else {
+        const lys = varsel.raekker.has(r) || varsel.kolonner.has(c);
+        tegnKlods(cx, cy, celle, vaerdi, 1, lys ? 1.06 : 1);
+        if (lys) {
+          const m = celle * 0.06;
+          afrundet(cx + m, cy + m, celle - m * 2, celle - m * 2, celle * 0.22);
+          ctx.fillStyle = "rgba(255,255,255,.28)";
+          ctx.fill();
+        }
+      }
+    }
+  }
+
+  // skyggen af den brik, man holder
+  if (S.traek && S.traek.gyldig) {
+    const t = S.traek;
+    for (const [dx, dy] of t.brik.form.celler) {
+      const cx = x + (t.c + dx) * celle, cy = y + (t.r + dy) * celle;
+      tegnKlods(cx, cy, celle, t.brik.farve, 0.42, 0.94);
+    }
+  }
+}
+
+/* Rækker og kolonner, der bliver fyldte, hvis brikken slippes, hvor den er. */
+function varsling() {
+  const tom = { raekker: new Set(), kolonner: new Set() };
+  const t = S.traek;
+  if (!t || !t.gyldig) return tom;
+
+  const kopi = Int8Array.from(S.bræt);
+  for (const [dx, dy] of t.brik.form.celler) kopi[idx(t.c + dx, t.r + dy)] = t.brik.farve;
+  for (let y = 0; y < N; y++) {
+    let fuld = true;
+    for (let x = 0; x < N; x++) if (kopi[idx(x, y)] === 0) { fuld = false; break; }
+    if (fuld) tom.raekker.add(y);
+  }
+  for (let x = 0; x < N; x++) {
+    let fuld = true;
+    for (let y = 0; y < N; y++) if (kopi[idx(x, y)] === 0) { fuld = false; break; }
+    if (fuld) tom.kolonner.add(x);
+  }
+  return tom;
+}
+
+/* Størrelsen på en brik, mens den ligger i bakken. */
+function bakkeSkala(felt, form) {
+  return Math.min(felt.w * 0.82 / form.b, felt.h * 0.82 / form.h, L.braet.celle * 0.72);
+}
+
+function tegnBakke() {
+  for (let i = 0; i < L.bakke.length; i++) {
+    const felt = L.bakke[i], brik = S.bakke[i];
+    if (!brik) continue;
+    if (S.traek && S.traek.plads === i) continue;      // den ligger i hånden
+
+    const s = bakkeSkala(felt, brik.form);
+    const ind = clamp(brik.ind, 0, 1);
+    const kanBruges = harPlads(S.bræt, brik.form);
+    const x = felt.x + (felt.w - brik.form.b * s) / 2;
+    const y = felt.y + (felt.h - brik.form.h * s) / 2 + (1 - ind) * felt.h * 0.4;
+
+    ctx.save();
+    for (const [dx, dy] of brik.form.celler)
+      tegnKlods(x + dx * s, y + dy * s, s, brik.farve, (kanBruges ? 1 : 0.32) * ind, 1);
+    ctx.restore();
+  }
+}
+
+function tegnHaand() {
+  const t = S.traek;
+  if (!t) return;
+  const celle = L.braet.celle;
+  const s = lerp(bakkeSkala(L.bakke[t.plads], t.brik.form), celle, clamp(t.voks, 0, 1));
+  const x = t.x - t.brik.form.b * s / 2;
+  const y = t.y - t.brik.form.h * s / 2;
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,.45)";
+  ctx.shadowBlur = celle * 0.35;
+  ctx.shadowOffsetY = celle * 0.12;
+  for (const [dx, dy] of t.brik.form.celler)
+    tegnKlods(x + dx * s, y + dy * s, s, t.brik.farve, 1, 1);
+  ctx.restore();
+}
+
+function tegnHUD() {
+  const pad = L.pad, top = L.top;
+
+  tekst("BEDSTE", pad, top * 0.34, clamp(top * 0.16, 10, 15), "rgba(255,255,255,.45)", "left", 700);
+  tekst(String(S.bedste), pad, top * 0.62, clamp(top * 0.26, 16, 26), "#ffd43b", "left", 800);
+
+  const midt = L.landskab ? L.braet.x + L.braet.side / 2 : L.w / 2;
+  tekst(String(S.point), midt, top * 0.52, clamp(top * 0.42, 26, 48), "#ffffff", "center", 800);
+
+  if (S.kombo > 1) {
+    const g = "KOMBO x" + Math.min(S.kombo, TUNE.komboLoft);
+    const b = ctx.measureText(g).width;
+    ctx.save();
+    afrundet(midt - b * 0.42, top * 0.78, b * 0.84, top * 0.24, top * 0.12);
+    ctx.fillStyle = "rgba(255,212,59,.18)";
+    ctx.fill();
+    tekst(g, midt, top * 0.90, clamp(top * 0.15, 10, 15), "#ffd43b", "center", 800);
+    ctx.restore();
+  }
+
+  for (const k of L.knap) {
+    ctx.beginPath();
+    ctx.arc(k.x, k.y, k.r, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,255,255,.09)";
+    ctx.fill();
+    if (k.navn === "lyd") {
+      tekst(lyd.til ? "♪" : "♪̸", k.x, k.y + k.r * 0.04, k.r * 1.25,
+        lyd.til ? "#ffffff" : "rgba(255,255,255,.35)", "center", 700);
+      if (!lyd.til) {                      // streg over noden, når lyden er slået fra
+        ctx.strokeStyle = "rgba(255,255,255,.55)";
+        ctx.lineWidth = Math.max(1.5, k.r * 0.12);
+        ctx.beginPath();
+        ctx.moveTo(k.x - k.r * 0.55, k.y + k.r * 0.55);
+        ctx.lineTo(k.x + k.r * 0.55, k.y - k.r * 0.55);
+        ctx.stroke();
+      }
+    } else {
+      tekst("↺", k.x, k.y + k.r * 0.06, k.r * 1.3, "#ffffff", "center", 700);
+    }
+  }
+}
+
+/* Første gang: én linje, der forsvinder, så snart den første brik er lagt. */
+function tegnHint() {
+  if (S.point !== 0 || S.slut || S.traek) return;
+  if (S.bræt.some(v => v !== 0)) return;
+  const luft = L.braet.y - L.top;
+  if (luft < 42) return;                    // ingen plads over brættet på lave skærme
+  const midt = L.landskab ? L.braet.x + L.braet.side / 2 : L.w / 2;
+  tekstIBredde("Træk brikkerne ud på brættet", midt, L.top + luft * 0.45, L.w * 0.8,
+    clamp(L.braet.celle * 0.42, 13, 20), "rgba(255,255,255,.38)", 700);
+}
+
+function tegnEffekter() {
+  const celle = L.braet.celle;
+  for (const e of S.effekter) {
+    if (e.t < 0) continue;
+    const p = clamp(e.t / 0.34, 0, 1);
+    const pos = cellePos(e.i);
+    tegnKlods(pos.x, pos.y, celle, e.farve, 1 - p, 1 + p * 0.55);
+  }
+  for (const p of S.partikler) {
+    const a = clamp(p.liv / p.maks, 0, 1);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = p.farve;
+    const s = p.s * (0.4 + a * 0.6);
+    afrundet(p.x - s / 2, p.y - s / 2, s, s, s * 0.3);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  for (const t of S.tal) {
+    const p = clamp(t.t / 1.0, 0, 1);
+    const pos = cellePos(t.celle);
+    const x = clamp(pos.x + celle / 2, L.braet.x + celle, L.braet.x + L.braet.side - celle);
+    const y = pos.y - p * celle * 1.6;
+    ctx.globalAlpha = 1 - p * p;
+    tekst(t.tekst, x, y, celle * (t.stor ? 0.62 : 0.45), "#ffffff", "center", 800);
+    if (t.kombo) tekst(t.kombo, x, y + celle * 0.52, celle * 0.34, "#ffd43b", "center", 800);
+    ctx.globalAlpha = 1;
+  }
+}
+
+/* Tekst, der skrumper, til den kan være inden for bredden. Danske ord er
+   lange, og boksen er smal på en telefon.                                */
+function tekstIBredde(streng, x, y, maks, stoerrelse, farve, vaegt) {
+  let s = stoerrelse;
+  for (let i = 0; i < 12; i++) {
+    ctx.font = (vaegt || 700) + " " + Math.round(s) + 'px "Baloo 2", system-ui, -apple-system, "Segoe UI", sans-serif';
+    if (ctx.measureText(streng).width <= maks || s < 10) break;
+    s *= 0.92;
+  }
+  tekst(streng, x, y, s, farve, "center", vaegt);
+}
+
+/* Knappen i slut- og forfra-boksen. Samme tal bruges både til at tegne
+   og til at ramme, så de aldrig kan komme fra hinanden.                  */
+function boksKnapper(toKnapper) {
+  const w = Math.min(L.w * 0.78, 420), h = Math.min(L.h * 0.5, 340);
+  const x = (L.w - w) / 2, y = (L.h - h) / 2;
+  const kh = clamp(h * 0.17, 44, 62);
+  const knapper = [];
+  if (toKnapper) {
+    const kw = (w - L.pad * 3) / 2;
+    knapper.push({ navn: "ja", x: x + L.pad, y: y + h - kh - L.pad, w: kw, h: kh });
+    knapper.push({ navn: "nej", x: x + L.pad * 2 + kw, y: y + h - kh - L.pad, w: kw, h: kh });
+  } else {
+    knapper.push({ navn: "igen", x: x + L.pad, y: y + h - kh - L.pad, w: w - L.pad * 2, h: kh });
+  }
+  return { x, y, w, h, knapper };
+}
+
+function tegnBoks(overskrift, linjer, toKnapper, navne) {
+  const b = boksKnapper(toKnapper);
+  ctx.fillStyle = "rgba(6,9,26,.72)";
+  ctx.fillRect(0, 0, L.w, L.h);
+
+  afrundet(b.x, b.y, b.w, b.h, 26);
+  ctx.fillStyle = "#1b2350";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,.12)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  const bredde = b.w - L.pad * 3;
+  tekstIBredde(overskrift, b.x + b.w / 2, b.y + b.h * 0.22, bredde,
+    clamp(b.h * 0.13, 20, 30), "#ffffff", 800);
+  linjer.forEach((l, i) =>
+    tekstIBredde(l, b.x + b.w / 2, b.y + b.h * (0.44 + i * 0.15), bredde,
+      clamp(b.h * 0.10, 15, 22), i === 0 ? "#ffd43b" : "rgba(255,255,255,.75)", 700));
+
+  b.knapper.forEach((k, i) => {
+    afrundet(k.x, k.y, k.w, k.h, k.h * 0.34);
+    ctx.fillStyle = i === 0 ? "#37b24d" : "rgba(255,255,255,.12)";
+    ctx.fill();
+    tekst(navne[i], k.x + k.w / 2, k.y + k.h / 2, clamp(k.h * 0.38, 15, 22), "#ffffff", "center", 800);
+  });
+  return b;
+}
+
+function tegn() {
+  ctx.save();
+  if (S.ryst > 0.001) {
+    const k = S.ryst * L.braet.celle * 0.16;
+    ctx.translate(rnd(-k, k), rnd(-k, k));
+  }
+
+  // baggrund: en blød himmel, så brættet træder frem
+  const g = ctx.createLinearGradient(0, 0, 0, L.h);
+  g.addColorStop(0, "#141c46");
+  g.addColorStop(1, BAG);
+  ctx.fillStyle = g;
+  ctx.fillRect(-40, -40, L.w + 80, L.h + 80);
+
+  tegnBraet();
+  tegnHint();
+  tegnEffekter();
+  tegnBakke();
+  tegnHaand();
+  tegnHUD();
+  ctx.restore();
+
+  if (S.spurgtForfra)
+    tegnBoks("Starte forfra?", ["Brættet ryddes", "Din rekord bliver stående"], true, ["Ja", "Nej"]);
+  else if (S.slut)
+    tegnBoks("Ingen plads mere", [
+      "Point: " + S.point,
+      S.point >= S.bedste ? "Ny rekord!" : "Bedste: " + S.bedste
+    ], false, ["Spil igen"]);
+}
+
+/* ---------- animationer ---------- */
+function opdater(dt) {
+  S.tid += dt;
+  S.ryst = Math.max(0, S.ryst - dt * 3.2);
+
+  for (let i = S.effekter.length - 1; i >= 0; i--) {
+    const e = S.effekter[i];
+    if (e.vent > 0) { e.vent -= dt; continue; }
+    if (!e.spredt) {                       // små klodser flyver væk, når feltet ryddes
+      e.spredt = true;
+      const pos = cellePos(e.i), celle = L.braet.celle;
+      const f = FARVER[e.farve] || FARVER[1];
+      for (let n = 0; n < 5; n++) {
+        const vinkel = rnd(0, Math.PI * 2), fart = rnd(40, 170);
+        S.partikler.push({
+          x: pos.x + celle / 2, y: pos.y + celle / 2,
+          vx: Math.cos(vinkel) * fart, vy: Math.sin(vinkel) * fart - 60,
+          s: celle * rnd(0.10, 0.24), farve: n % 2 ? f.top : f.kant,
+          liv: rnd(0.35, 0.7), maks: 0.7
+        });
+      }
+    }
+    e.t += dt;
+    if (e.t > 0.34) S.effekter.splice(i, 1);
+  }
+
+  for (let i = S.partikler.length - 1; i >= 0; i--) {
+    const p = S.partikler[i];
+    p.liv -= dt;
+    if (p.liv <= 0) { S.partikler.splice(i, 1); continue; }
+    p.vy += 900 * dt;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+  }
+
+  for (let i = S.tal.length - 1; i >= 0; i--) {
+    S.tal[i].t += dt;
+    if (S.tal[i].t > 1) S.tal.splice(i, 1);
+  }
+
+  for (const b of S.bakke) if (b && b.ind < 1) b.ind = Math.min(1, b.ind + dt * 4);
+  if (S.traek) S.traek.voks = Math.min(1, (S.traek.voks || 0) + dt * 9);
+}
+
+/* ---------- styring ----------
+   Ét sæt pointer-hændelser dækker både mus og finger.                    */
+function punkt(e) {
+  const r = canvas.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+
+function iRundKnap(p, k) {
+  const d = Math.hypot(p.x - k.x, p.y - k.y);
+  return d < k.r * 1.7;                    // rundhåndet trykfelt: fingre er upræcise
+}
+
+function iRekt(p, r) {
+  return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
+}
+
+/* Hvor på brættet ville brikken lande, hvis den blev sluppet nu? */
+function sigt(t) {
+  const celle = L.braet.celle;
+  const venstre = t.x - t.brik.form.b * celle / 2;
+  const top = t.y - t.brik.form.h * celle / 2;
+  let c = Math.round((venstre - L.braet.x) / celle);
+  let r = Math.round((top - L.braet.y) / celle);
+  c = clamp(c, 0, N - t.brik.form.b);
+  r = clamp(r, 0, N - t.brik.form.h);
+
+  // brikken skal være i nærheden af brættet, ellers er det ikke et træk
+  const naer = t.x > L.braet.x - celle && t.x < L.braet.x + L.braet.side + celle &&
+               t.y > L.braet.y - celle * 1.5 && t.y < L.braet.y + L.braet.side + celle;
+
+  t.c = c; t.r = r;
+  t.gyldig = naer && kanLigge(S.bræt, t.brik.form, c, r);
+}
+
+function ned(e) {
+  e.preventDefault();
+  lyd.start();
+  const p = punkt(e);
+
+  if (S.spurgtForfra || S.slut) {
+    const b = boksKnapper(S.spurgtForfra);
+    for (const k of b.knapper) {
+      if (!iRekt(p, k)) continue;
+      if (k.navn === "nej") S.spurgtForfra = false;
+      else nytSpil();
+      return;
+    }
+    return;
+  }
+
+  for (const k of L.knap) {
+    if (!iRundKnap(p, k)) continue;
+    if (k.navn === "lyd") lyd.skift();
+    else S.spurgtForfra = true;
+    return;
+  }
+
+  for (let i = 0; i < L.bakke.length; i++) {
+    const brik = S.bakke[i];
+    if (!brik) continue;
+    // hele feltet er trykfelt, ikke kun klodserne — ellers rammer man ved siden af
+    if (!iRekt(p, L.bakke[i])) continue;
+    const loeft = e.pointerType === "touch" ? L.braet.celle * 1.5 : 0;
+    S.traek = { plads: i, brik, x: p.x, y: p.y - loeft, loeft, voks: 0, gyldig: false, c: 0, r: 0 };
+    sigt(S.traek);
+    lyd.loeft();
+    return;
+  }
+}
+
+function flyt(e) {
+  if (!S.traek) return;
+  e.preventDefault();
+  const p = punkt(e);
+  S.traek.x = p.x;
+  S.traek.y = p.y - S.traek.loeft;
+  sigt(S.traek);
+}
+
+function op(e) {
+  const t = S.traek;
+  if (!t) return;
+  e.preventDefault();
+  S.traek = null;
+  if (t.gyldig) laegBrik(t.plads, t.c, t.r);
+  else {
+    const brik = S.bakke[t.plads];
+    if (brik) brik.ind = 0.55;             // brikken hopper tilbage på plads
+    lyd.forkert();
+  }
+}
+
+canvas.addEventListener("pointerdown", ned, { passive: false });
+canvas.addEventListener("pointermove", flyt, { passive: false });
+canvas.addEventListener("pointerup", op, { passive: false });
+canvas.addEventListener("pointercancel", op, { passive: false });
+canvas.addEventListener("contextmenu", e => e.preventDefault());
+
+addEventListener("keydown", e => {
+  if (e.key === "m" || e.key === "M") { lyd.start(); lyd.skift(); }
+  if (e.key === "r" || e.key === "R") S.spurgtForfra = !S.spurgtForfra;
+  if (e.key === "Escape") S.spurgtForfra = false;
+});
+
+// gem stillingen, når fanen lægges væk — telefoner smider den gerne ud
+addEventListener("visibilitychange", () => { if (document.hidden) gemSpil(); });
+addEventListener("pagehide", gemSpil);
+
+/* ---------- i gang ---------- */
+layout();
+if (!hentSpil()) nytSpil();
+else if (!S.slut) tjekSlut();
+
+let sidst = nu();
+(function loop() {
+  const t = nu();
+  const dt = Math.min(0.05, t - sidst);
+  sidst = t;
+  opdater(dt);
+  tegn();
+  requestAnimationFrame(loop);
+})();
+</script>
