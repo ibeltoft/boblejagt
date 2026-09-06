@@ -4,7 +4,7 @@ Et arkadespil til børn. Du styrer en lille figur med en boblekanon i en arena, 
 grinende slimklatter kommer i bølger. Slim popper til stjerner, stjerner købes til
 opgraderinger, og nye våben ligger i kister ude på banen.
 
-**Spil det her: https://ibeltoft.github.io/boblejagt/boblejagt/**
+**Spil det her: https://ibeltoft.github.io/spil/boblejagt/**
 
 ## Sådan får du det på telefonen
 

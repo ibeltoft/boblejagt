@@ -3,15 +3,17 @@
 To spil i browseren, bygget til telefonen. Forsiden er en hal: man vælger spil,
 og rekorden for hvert spil står på kortet.
 
-**Åbn hallen: https://ibeltoft.github.io/boblejagt/**
+**Åbn hallen: https://ibeltoft.github.io/spil/**
 
 | Spil | Hvad det er | Link |
 |---|---|---|
-| 🫧 **Boblejagt** | Arkadespil til børn — pop slimklatter, saml stjerner, find nye våben | [boblejagt/](https://ibeltoft.github.io/boblejagt/boblejagt/) |
-| 🧩 **Klodsjagt** | Blokpuslespil — læg tre brikker ad gangen og ryd striber | [klodsjagt/](https://ibeltoft.github.io/boblejagt/klodsjagt/) |
+| 🫧 **Boblejagt** | Arkadespil til børn — pop slimklatter, saml stjerner, find nye våben | [boblejagt/](https://ibeltoft.github.io/spil/boblejagt/) |
+| 🧩 **Klodsjagt** | Blokpuslespil — læg tre brikker ad gangen og ryd striber | [klodsjagt/](https://ibeltoft.github.io/spil/klodsjagt/) |
 
-Repoet hedder stadig `boblejagt`, fordi URL'en og de installerede genveje hænger
-på det navn. Derfor ligger hallen på `/boblejagt/` og spillet ét niveau nede.
+Repoet hedder `spil`, så adresserne bliver `/spil/<spil>/`. Det er samtidig
+prisen: den gamle adresse `ibeltoft.github.io/boblejagt/` findes ikke længere —
+GitHub Pages sender ikke videre efter en omdøbning. Genveje på hjemmeskærmen,
+der peger på den gamle adresse, skal lægges på igen.
 
 ## Sådan får du det på telefonen
 
