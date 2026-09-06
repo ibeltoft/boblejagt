@@ -5,17 +5,15 @@
   html,body{margin:0;height:100%;background:#0d1b3a;overflow:hidden;
     font-family:"Baloo 2",Verdana,Geneva,sans-serif;-webkit-user-select:none;user-select:none;
     -webkit-tap-highlight-color:transparent;touch-action:none}
-  /* padding holder banen fri af iPhonens notch og hjørner i landskab */
+  /* Banen går helt ud til kanten — også i browseren. Rammen med runde
+     hjørner og skygge fik spillet til at ligne en webside i en webside.
+     Kun notch og hjemmeindikator holdes fri, og det skal de: i landskab
+     æder iPhonens hak ellers et stykke af banen.                        */
   #wrap{position:fixed;inset:0;display:grid;place-items:center;box-sizing:border-box;
-    padding:calc(env(safe-area-inset-top) + 8px) calc(env(safe-area-inset-right) + 8px)
-            calc(env(safe-area-inset-bottom) + 8px) calc(env(safe-area-inset-left) + 8px)}
-  /* startet fra hjemmeskærmen: brug hver eneste pixel, ingen vinduesramme */
-  body.app #wrap{padding:env(safe-area-inset-top) env(safe-area-inset-right)
-                         env(safe-area-inset-bottom) env(safe-area-inset-left)}
-  body.app canvas{border-radius:0;box-shadow:none}
+    padding:env(safe-area-inset-top) env(safe-area-inset-right)
+            env(safe-area-inset-bottom) env(safe-area-inset-left)}
   /* touch-action nedarves ikke — uden denne zoomer et dobbelttryk midt i spillet */
-  canvas{display:block;image-rendering:auto;border-radius:14px;touch-action:none;
-    box-shadow:0 18px 60px rgba(0,0,0,.55)}
+  canvas{display:block;image-rendering:auto;touch-action:none}
 </style>
 <div id="wrap"><canvas id="c"></canvas></div>
 <!-- ---------- spilhallens navneboks (samme markup i alle spil) ---------- -->
@@ -174,14 +172,6 @@ const ctx = canvas.getContext("2d");
     document.head.appendChild(l);
   }
 
-  // Kører spillet fra hjemmeskærmen (eller i fuldskærm), skal rammen væk.
-  const iApp = () => matchMedia("(display-mode: standalone)").matches ||
-                     matchMedia("(display-mode: fullscreen)").matches ||
-                     navigator.standalone === true;
-  const opdaterRamme = () => document.body.classList.toggle("app", iApp());
-  opdaterRamme();
-  matchMedia("(display-mode: standalone)").addEventListener("change", opdaterRamme);
-
   // Service worker gør spillet spilbart uden internet, når det først er
   // hentet én gang. Kræver http(s) — springes over ved direkte filåbning,
   // og en fejl her må aldrig stoppe spillet.
@@ -191,6 +181,32 @@ const ctx = canvas.getContext("2d");
     });
   }
 })();
+
+/* ---------- fuld skærm ----------
+   Startet fra hjemmeskærmen fylder spillet allerede skærmen. I en browser
+   gør adresselinjen ikke — der kan fuldskærm hjælpe, hvor den findes.
+   iPhonens Safari kan det ikke; der er "Føj til hjemmeskærm" vejen, og
+   derfor vises knappen kun, hvor den rent faktisk virker.              */
+const iApp = () => matchMedia("(display-mode: standalone)").matches ||
+                   matchMedia("(display-mode: fullscreen)").matches ||
+                   navigator.standalone === true;
+
+const kanFuldSkaerm = () => !!(document.documentElement.requestFullscreen ||
+                               document.documentElement.webkitRequestFullscreen);
+
+function iFuldSkaerm() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+
+function skiftFuldSkaerm() {
+  try {
+    if (iFuldSkaerm()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    else {
+      const e = document.documentElement;
+      (e.requestFullscreen || e.webkitRequestFullscreen).call(e);
+    }
+  } catch (err) { /* browseren ville ikke — så bliver det ved det gamle */ }
+}
+// fuldskærm ændrer størrelsen uden altid at give en resize-hændelse
+document.addEventListener("fullscreenchange", () => setTimeout(resize, 60));
 
 /* ---------- små hjælpere ---------- */
 const TAU = Math.PI * 2;
@@ -212,7 +228,10 @@ function resize() {
   portraet = hoejde > bredde * 1.15 && bredde < 760;
   // banen får skærmens format, så der ikke bliver bjælker i siderne
   H = VERDEN_H;
-  W = clamp(Math.round(H * (bredde / hoejde)), W_MIN, W_MAX);
+  /* I portræt spilles der ikke — så må banen gerne blive smallere end
+     W_MIN. Ellers står "drej din telefon" i et lille kort midt på en
+     tom side, netop dét, der får spillet til at ligne en webside.     */
+  W = clamp(Math.round(H * (bredde / hoejde)), portraet ? 200 : W_MIN, W_MAX);
   scale = Math.min(bredde / W, hoejde / H);
   const dpr = Math.min(devicePixelRatio || 1, 2);
   canvas.width = Math.round(W * scale * dpr);
@@ -893,6 +912,18 @@ function txt(s, x, y, size, farve = "#fff", align = "left", vaegt = "bold") {
   ctx.textAlign = align; ctx.textBaseline = "middle";
   ctx.fillStyle = farve; ctx.fillText(s, x, y);
 }
+/* Tekst der skrumper, til den kan være inden for bredden. Bruges hvor
+   banen kan blive smal — fx "drej din telefon" på en telefon i portræt. */
+function txtBred(s, x, y, maks, size, farve = "#fff", align = "center", vaegt = "bold") {
+  let str = size;
+  for (let i = 0; i < 14; i++) {
+    ctx.font = vaegt + " " + Math.round(str) + "px Verdana, sans-serif";
+    if (ctx.measureText(s).width <= maks || str < 9) break;
+    str *= 0.92;
+  }
+  txt(s, x, y, str, farve, align, vaegt);
+}
+
 function rundRekt(x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -1178,7 +1209,8 @@ function knap(x, y, w, h, tekst, fn, farve = "#7fd7ff") {
   rundRekt(x, y, w, h, 12); ctx.fill();
   ctx.strokeStyle = farve; ctx.lineWidth = 2.5;
   rundRekt(x, y, w, h, 12); ctx.stroke();
-  txt(tekst, x + w / 2, y + h / 2, 20, "#fff", "center");
+  // teksten skrumper, hvis knappen er smal — ellers flyder "FULD SKÆRM" ud over kanten
+  txtBred(tekst, x + w / 2, y + h / 2, w - 16, Math.min(20, h * 0.52), "#fff", "center");
   klikBokse.push({ x, y, w, h, fn });
 }
 
@@ -1197,10 +1229,21 @@ function tegnMenu() {
   ];
   linjer.forEach((l, i) => txt(l, W / 2, 268 + i * 28, 15, "rgba(207,230,255,.85)", "center", "normal"));
 
-  knap(W / 2 - 120, 400, 240, 58, "SPIL", startSpil);
-  knap(W / 2 - 120, 468, 240, 38, "SPILHALLEN", () => location.href = "../");
-  if (spillerNavn) txt("Spiller: " + spillerNavn, W / 2, 528, 15, "#cfe6ff", "center", "normal");
-  if (G.high > 0) txt("Bedste score: " + G.high, W / 2, 552, 16, "#ffe066", "center");
+  knap(W / 2 - 120, 396, 240, 56, "SPIL", startSpil);
+
+  /* Fuldskærmsknappen vises kun, hvor den virker og gør en forskel:
+     ikke på iPhone (Safari kan det ikke) og ikke, når spillet allerede
+     er startet fra hjemmeskærmen.                                     */
+  const fuld = kanFuldSkaerm() && !iApp();
+  if (fuld) {
+    knap(W / 2 - 122, 462, 118, 38, "HALLEN", () => location.href = "../");
+    knap(W / 2 + 4, 462, 118, 38, iFuldSkaerm() ? "LUK FULD" : "FULD SKÆRM", skiftFuldSkaerm);
+  } else {
+    knap(W / 2 - 120, 462, 240, 38, "SPILHALLEN", () => location.href = "../");
+  }
+
+  if (spillerNavn) txt("Spiller: " + spillerNavn, W / 2, 522, 15, "#cfe6ff", "center", "normal");
+  if (G.high > 0) txt("Bedste score: " + G.high, W / 2, 546, 16, "#ffe066", "center");
   txt("M slår lyden til og fra", W / 2, H - 26, 12, "rgba(255,255,255,.4)", "center", "normal");
 }
 
@@ -1268,8 +1311,35 @@ function tegnPause() {
   knap(W / 2 - 110, H / 2 + 10, 220, 56, "SPIL VIDERE", () => G.tilstand = "spil");
 }
 
+/* Telefonen holdt på højkant: her spilles der ikke, og menuen bagved er
+   tegnet til en bred bane. Derfor tegnes kun denne skærm — ellers flød
+   menuteksten ud over kanterne bag ved beskeden.                        */
+function tegnPortraet() {
+  tegnBaggrund();
+  overlay(.86);
+  const cx = W / 2, cy = H / 2 - 30, vip = Math.sin(G.tid * 2) * .35;
+  ctx.save();
+  ctx.translate(cx, cy); ctx.rotate(vip);
+  ctx.strokeStyle = "#9fe8ff"; ctx.lineWidth = 7;
+  rundRekt(-38, -62, 76, 124, 12); ctx.stroke();
+  ctx.fillStyle = "#9fe8ff";
+  rundRekt(-12, 46, 24, 5, 3); ctx.fill();
+  ctx.restore();
+  const paaTouch = navigator.maxTouchPoints > 0 ||
+                   matchMedia("(pointer: coarse)").matches;
+  const bred = W * 0.86;
+  txtBred(paaTouch ? "DREJ DIN TELEFON" : "GØR VINDUET BREDERE", W / 2, cy + 110, bred, 34, "#9fe8ff");
+  txtBred("Boblejagt spilles på langs — så er der plads til slimen", W / 2, cy + 152, bred, 17,
+      "rgba(207,230,255,.8)", "center", "normal");
+  // uden denne er man fanget her, når spillet er lagt på hjemmeskærmen:
+  // en app i fuld skærm har ingen tilbage-knap
+  const kb = Math.min(220, W * 0.8);
+  knap(W / 2 - kb / 2, cy + 190, kb, 44, "SPILHALLEN", () => location.href = "../");
+}
+
 function tegn() {
   klikBokse = [];
+  if (portraet) { tegnPortraet(); return; }
   ctx.save();
   if (G.rystelse > 0) ctx.translate(rnd(-G.rystelse, G.rystelse), rnd(-G.rystelse, G.rystelse));
 
@@ -1311,28 +1381,6 @@ function tegn() {
   else if (G.tilstand === "butik") tegnButik();
   else if (G.tilstand === "slut") tegnSlut();
   else if (G.tilstand === "pause") tegnPause();
-
-  if (portraet) {
-    overlay(.9);
-    // knapperne bagved er dækket til — de må ikke kunne rammes i blinde
-    klikBokse = [];
-    const cx = W / 2, cy = H / 2 - 30, vip = Math.sin(G.tid * 2) * .35;
-    ctx.save();
-    ctx.translate(cx, cy); ctx.rotate(vip);
-    ctx.strokeStyle = "#9fe8ff"; ctx.lineWidth = 7;
-    rundRekt(-38, -62, 76, 124, 12); ctx.stroke();
-    ctx.fillStyle = "#9fe8ff";
-    rundRekt(-12, 46, 24, 5, 3); ctx.fill();
-    ctx.restore();
-    const paaTouch = navigator.maxTouchPoints > 0 ||
-                     matchMedia("(pointer: coarse)").matches;
-    txt(paaTouch ? "DREJ DIN TELEFON" : "GØR VINDUET BREDERE", W / 2, cy + 110, 34, "#9fe8ff", "center");
-    txt("Boblejagt spilles på langs — så er der plads til slimen", W / 2, cy + 150, 17,
-        "rgba(207,230,255,.8)", "center", "normal");
-    // uden denne er man fanget her, når spillet er lagt på hjemmeskærmen:
-    // en app i fuld skærm har ingen tilbage-knap
-    knap(W / 2 - 110, cy + 186, 220, 44, "SPILHALLEN", () => location.href = "../");
-  }
 
   // lyd-indikator
   if (Sound.muted) txt("lyd slået fra (M)", 20, H - 16, 12, "rgba(255,255,255,.35)", "left", "normal");

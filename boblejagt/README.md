@@ -25,6 +25,21 @@ virker i flytilstand. Intet login, ingen konto, ingen app-butik.
 | Pause | P eller Esc | — |
 | Lyd til/fra | M | — |
 
+## Fuld skærm
+
+Banen går helt ud til kanten — ingen ramme, ingen runde hjørner, ingen skygge.
+Kun iPhonens hak og hjemmeindikator holdes fri, for ellers æder de et stykke af
+banen i landskab.
+
+| Sådan spiller du | Hvad du får |
+|---|---|
+| Fra hjemmeskærmen (Føj til hjemmeskærm) | Hele skærmen, ingen adresselinje. Bedst på iPhone — Safari kan ikke fuldskærm på telefonen. |
+| I en browser på Android eller computer | **FULD SKÆRM**-knappen i menuen. Den vises kun, hvor den virker. |
+| I Safari på iPhone uden at installere | Banen fylder alt undtagen browserens egne bjælker. |
+
+Holder du telefonen på højkant, fylder "drej din telefon"-skærmen nu hele
+skærmen i stedet for at ligge som et lille kort på en tom side.
+
 ## Spillernavn
 
 Ved start skriver du dit navn. Scoren fra hver runde lander på spilhallens tavle,
