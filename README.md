@@ -3,17 +3,17 @@
 To spil i browseren, bygget til telefonen. Forsiden er en hal: man vælger spil,
 og rekorden for hvert spil står på kortet.
 
-**Åbn hallen: https://ibeltoft.github.io/spil/**
+**Åbn hallen: https://ibeltoft.github.io/spillehal/**
 
 | Spil | Hvad det er | Link |
 |---|---|---|
-| 🫧 **Boblejagt** | Arkadespil til børn — pop slimklatter, saml stjerner, find nye våben | [boblejagt/](https://ibeltoft.github.io/spil/boblejagt/) |
-| 🧩 **Klodsjagt** | Blokpuslespil — læg tre brikker ad gangen og ryd striber | [klodsjagt/](https://ibeltoft.github.io/spil/klodsjagt/) |
+| 🫧 **Boblejagt** | Arkadespil til børn — pop slimklatter, saml stjerner, find nye våben | [boblejagt/](https://ibeltoft.github.io/spillehal/boblejagt/) |
+| 🧩 **Klodsjagt** | Blokpuslespil — læg tre brikker ad gangen og ryd striber | [klodsjagt/](https://ibeltoft.github.io/spillehal/klodsjagt/) |
 
-Repoet hedder `spil`, så adresserne bliver `/spil/<spil>/`. Det er samtidig
-prisen: den gamle adresse `ibeltoft.github.io/boblejagt/` findes ikke længere —
-GitHub Pages sender ikke videre efter en omdøbning. Genveje på hjemmeskærmen,
-der peger på den gamle adresse, skal lægges på igen.
+Repoet hedder `spillehal`, så adresserne bliver `/spillehal/<spil>/`. Det er
+samtidig prisen: den gamle adresse `ibeltoft.github.io/boblejagt/` findes ikke
+længere — GitHub Pages sender ikke videre efter en omdøbning. Genveje på
+hjemmeskærmen, der peger på den gamle adresse, skal lægges på igen.
 
 ## Sådan får du det på telefonen
 

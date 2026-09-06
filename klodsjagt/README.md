@@ -4,7 +4,7 @@ Blokpuslespil til telefonen i browseren. Du får tre brikker ad gangen og lægge
 dem på et 8×8-bræt. Fyldte rækker og kolonner forsvinder. Ingen tidspres, ingen
 faldende brikker — det slutter, når ingen af de tre brikker kan være der.
 
-**Spil det her: https://ibeltoft.github.io/spil/klodsjagt/**
+**Spil det her: https://ibeltoft.github.io/spillehal/klodsjagt/**
 
 ## Sådan får du det på telefonen
 
